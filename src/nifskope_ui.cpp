@@ -530,10 +530,8 @@ void NifSkope::initMenu()
 		grpTheme->addAction( a );
 	}
 
-
-	// XML overlay (NIF-CS.xml) spec selection, inserted after "Reload XML && NIF"
+	// XML overlay (NIF-CS.xml) spec selection, inserted after "Reload XML && NIF".
 	// Switching reloads the XML and the current NIF, so a new spec version can be tried on the fly.
-
 	QMenu * mXmlSpec = new QMenu( tr( "Community Shaders PBR Spec" ), this );
 	mXmlSpec->setObjectName( "mXmlSpec" );
 	{

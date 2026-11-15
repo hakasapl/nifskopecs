@@ -1609,6 +1609,8 @@ void BSLightingShaderProperty::updatePBRParams( const NifModel * nif, const QVec
 	float	coatRoughness = 1.0f;
 	float	coatSpecularLevel = 0.04f;
 	FloatVector4	fuzzColorAndWeight( 0.0f );
+	// Glint: screen space scale, log microfacet density, microfacet roughness, density randomization
+	FloatVector4	glintParams( 1.5f, 40.0f, 0.015f, 2.0f );
 	float	fuzzRoughness = -1.0f;
 	if ( isST( ShaderFlags::ST_MultiLayerParallax ) ) {
 		QVector<float>	v = readPBRFloatsAfter( nif, lsp, "Lighting Effect 2", 5 );
@@ -1616,7 +1618,7 @@ void BSLightingShaderProperty::updatePBRParams( const NifModel * nif, const QVec
 			coatRoughness = v[0];
 			coatSpecularLevel = v[1];
 			fuzzColorAndWeight = FloatVector4( v[0], v[1], v[2], v[3] );
-			pbr.glintParams = FloatVector4( v[0], v[1], v[2], v[3] );
+			glintParams = fuzzColorAndWeight;
 			fuzzRoughness = ( v[4] < 1.0f ? v[4] : -1.0f );
 		}
 	}
@@ -1660,7 +1662,7 @@ void BSLightingShaderProperty::updatePBRParams( const NifModel * nif, const QVec
 		pbr.layerParams = fuzzColorAndWeight;
 	} else if ( glintEnabled ) {
 		flags |= Flags::Glint;
-		pbr.layerParams = pbr.glintParams;
+		pbr.layerParams = glintParams;
 	}
 	pbr.fuzzRoughness = ( fuzzRoughness >= 0.0f ? std::min( fuzzRoughness, 1.0f ) : -1.0f );
 

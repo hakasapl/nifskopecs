@@ -820,8 +820,6 @@ public:
 		float fuzzRoughness = -1.0f;
 		//! Subsurface balance, thin surface front and back specular weights, back roughness scale (PBRThinSurface)
 		FloatVector4 thinSurfaceParams = FloatVector4( 0.75f, 0.5f, 0.5f, 1.0f );
-		//! Glint: screen space scale, log microfacet density, microfacet roughness, density randomization
-		FloatVector4 glintParams = FloatVector4( 1.5f, 40.0f, 0.015f, 2.0f );
 	} pbr;
 
 protected:

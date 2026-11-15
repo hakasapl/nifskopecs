@@ -18,7 +18,12 @@ AboutDialog::AboutDialog( QWidget * parent )
 	QString build = tr( "Built %1" ).arg( __DATE__ );
 #endif
 	QString text = QStringLiteral( "<p><b>%1</b><br>%2</p>" ).arg( nifSkopeCSDisplayName().toHtmlEscaped(), build ) + tr( R"rhtml(
-	<p>NifSkopeCS is NifSkope with extended support for Community Shaders specific applications.</p>
+	<p>NifSkopeCS is NifSkope with extended support for Community Shaders specific applications.
+	Its source is available on <a href='https://github.com/hakasapl/nifskope'>GitHub</a>.</p>
+
+	<p>The TruePBR preview shader is a port of the lighting shader of
+	<a href='https://github.com/community-shaders/skyrim-community-shaders'>Community Shaders</a>, and is licensed
+	under version 3 of the GNU General Public License (LICENSE-GPL-3.0.txt), unlike the rest of NifSkope.</p>
 
 	<p>NifSkope is a tool for opening and editing the NetImmerse file format (NIF).</p>
 

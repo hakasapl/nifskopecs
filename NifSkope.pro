@@ -570,6 +570,8 @@ build_pass|!debug_and_release {
 	#copyDirs( $$LANG, lang )
 	copyFiles( $$XML $$QSS res/qt.conf )
 	copyFiles( AUTOSANITIZE.md )
+	# License of res/shaders/sk_pbr.frag (Community Shaders)
+	copyFiles( LICENSE-GPL-3.0.txt )
 
 	# Copy Readmes and rename to TXT
 	copyFiles( $$READMES,,,, md:txt )

@@ -1072,8 +1072,7 @@ QString NifModel::parseXmlOverlay( const QString & filename )
 				XmlOverlaySpec spec;
 				spec.version = attrs.value( QLatin1StringView("version") ).toString();
 				spec.name = attrs.value( QLatin1StringView("name") ).toString();
-				auto d = attrs.value( QLatin1StringView("default") );
-				spec.isDefault = ( d == QLatin1StringView("1") || d == QLatin1StringView("true") );
+				spec.isDefault = NifXmlHandler::isTrue( attrs.value( QLatin1StringView("default") ) );
 				if ( spec.version.isEmpty() )
 					return tr( "%1 XML parse error (line %2): spec without a version" ).arg( QString::fromLatin1( overlayFileName ) ).arg( reader.lineNumber() );
 				if ( spec.name.isEmpty() )

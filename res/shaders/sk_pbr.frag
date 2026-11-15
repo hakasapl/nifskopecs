@@ -3,6 +3,13 @@
 /*
  * Community Shaders TruePBR (Skyrim and SSE, Shader Flags 2 bit 23, see build/NIF-CS.xml)
  *
+ * Copyright (C) the Community Shaders contributors, https://github.com/community-shaders/skyrim-community-shaders
+ * Modified in November 2026 for NifSkopeCS: ported from HLSL to GLSL, as described below.
+ *
+ * Unlike the rest of NifSkope, this file is licensed under version 3 of the GNU General Public License (see
+ * LICENSE-GPL-3.0.txt), as the Community Shaders code it is a port of. It is distributed WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
  * Port of the TRUE_PBR path of the Community Shaders lighting shader, with its default settings
  * (Linear Lighting and Extended Materials parallax enabled, micro shadows on, vertex AO strength 1):
  *   package/Shaders/Lighting.hlsl          material setup and composition

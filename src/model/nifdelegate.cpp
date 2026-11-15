@@ -41,15 +41,17 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <QItemDelegate> // Inherited
 #include <QComboBox>
-#include <QHash>
-#include <QRegularExpression>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QListView>
 #include <QMessageBox>
+#include <QHash>
+#include <QRegularExpression>
 
 const QString SPACE_QSTRING(" ");
+
+//! @file nifdelegate.cpp NifDelegate
 
 //! Combo box item data role holding the value of an enum option (or the bit of a bit flags option)
 static constexpr int EnumValueRole = Qt::UserRole + 1;
@@ -86,8 +88,6 @@ static quint32 shownEnumValue( const QComboBox * cedit, bool isFlags, bool * ok 
 
 	return value;
 }
-
-//! @file nifdelegate.cpp NifDelegate
 
 extern void qt_format_text( const QFont & font, const QRectF & _r,
                             int tf, const QString & str, QRectF * brect,
@@ -359,7 +359,6 @@ public:
 			}
 
 			QString currentText = NifValue::enumOptionName( t, value, renamed );
-
 			cedit->setEditText( currentText );
 
 			if ( eo.t == NifValue::eFlags ) {

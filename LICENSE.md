@@ -29,6 +29,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 CREDITS
 
+NifSkopeCS renders Community Shaders TruePBR materials with a port of the lighting shader of
+Community Shaders (https://github.com/community-shaders/skyrim-community-shaders), in
+res/shaders/sk_pbr.frag (shaders/sk_pbr.frag in the packages). Unlike the rest of NifSkope, that
+file is licensed under version 3 of the GNU General Public License: see LICENSE-GPL-3.0.txt.
+
 The Windows build of NifSkope uses Havok(R) for the generation of MOPP code.
 Copyright (c) 1999-2014 Havok.com Inc. (and its Licensors).
 All Rights Reserved.  See www.havok.com for details.
