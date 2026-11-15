@@ -45,6 +45,35 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! @file nifitem.h NifItem, NifBlock, NifData, NifSharedData
 
+/*! A display-only alternate name for a field, or for one value of an enum field, declared by an
+ * XML overlay (e.g. NIF-CS.xml).
+ *
+ * The field keeps its name, type and value; while the conditions hold, the field (or the enum
+ * option) is only shown under the alias name and description, and the field may be hidden in
+ * the tree view. The first matching alias is used.
+ * Do not brace-initialize (NifExpr has an explicit default constructor).
+ */
+struct NifFieldAlias
+{
+	//! Hide the field in the tree view while the alias applies (display-only, it is still read and written).
+	bool hidden = false;
+	//! The alias renames the enum option 'value' of the field instead of the field itself.
+	bool isValueAlias = false;
+	quint32 value = 0;
+	//! Name shown instead of the field name.
+	QString name;
+	//! Description shown instead of the field description (if not empty).
+	QString text;
+	//! Where the alias was declared, shown in the tooltip.
+	QString origin;
+	//! Condition, evaluated like the cond attribute of a field.
+	QString cond;
+	NifExpr condexpr;
+	//! Version condition, evaluated like the vercond attribute of a field.
+	QString vercond;
+	NifExpr verexpr;
+};
+
 /*! Shared data for NifData.
  *
  * @see QSharedDataPointer
@@ -120,6 +149,9 @@ private:
 	NifExpr verexpr;
 
 	DataFlags flags = None;
+
+	//! Display-only alternate names (see NifFieldAlias).
+	QVector<NifFieldAlias> aliases;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS( NifSharedData::DataFlags );
@@ -170,6 +202,8 @@ public:
 	inline const QString & vercond() const { return d->vercond; }
 	//! Get the version condition attribute of the data, as an expression.
 	inline const NifExpr & verexpr() const { return d->verexpr; }
+	//! Get the display-only alternate names of the data.
+	inline const QVector<NifFieldAlias> & aliases() const { return d->aliases; }
 
 	//! Get the abstract attribute of the data.
 	inline bool isAbstract() const { return d->flags & NifSharedData::Abstract; }
@@ -241,6 +275,8 @@ public:
 		d->vercond = cond;
 		d->verexpr = NifExpr( cond );
 	}
+	//! Adds a display-only alternate name.
+	void addAlias( const NifFieldAlias & alias ) { d->aliases.append( alias ); }
 
 	inline void setFlag( NifSharedData::DataFlags flag, bool val )
 	{
@@ -583,6 +619,8 @@ public:
 	inline const QString & vercond() const { return itemData.vercond(); }
 	//! Return the version condition attribute of the data, as an expression
 	inline const NifExpr & verexpr() const { return itemData.verexpr(); }
+	//! Return the display-only alternate names of the data
+	inline const QVector<NifFieldAlias> & aliases() const { return itemData.aliases(); }
 
 	//! Return the abstract attribute of the data.
 	inline bool isAbstract() const { return itemData.isAbstract(); }

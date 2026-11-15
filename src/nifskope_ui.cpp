@@ -529,6 +529,49 @@ void NifSkope::initMenu()
 		a->setData( i++ );
 		grpTheme->addAction( a );
 	}
+
+
+	// XML overlay (NIF-CS.xml) spec selection, inserted after "Reload XML && NIF"
+	// Switching reloads the XML and the current NIF, so a new spec version can be tried on the fly.
+
+	QMenu * mXmlSpec = new QMenu( tr( "Community Shaders PBR Spec" ), this );
+	mXmlSpec->setObjectName( "mXmlSpec" );
+	{
+		auto fileActions = ui->mFile->actions();
+		auto reloadIndex = fileActions.indexOf( ui->aReload );
+		if ( reloadIndex >= 0 && ( reloadIndex + 1 ) < fileActions.size() )
+			ui->mFile->insertMenu( fileActions.at( reloadIndex + 1 ), mXmlSpec );
+		else
+			ui->mFile->addMenu( mXmlSpec );
+	}
+
+	connect( mXmlSpec, &QMenu::aboutToShow, this, [this, mXmlSpec]() {
+		mXmlSpec->clear();
+
+		if ( NifModel::overlaySpecs.isEmpty() ) {
+			QAction * a = mXmlSpec->addAction( tr( "%1 not found" ).arg( QString::fromLatin1( NifModel::overlayFileName ) ) );
+			a->setEnabled( false );
+			return;
+		}
+
+		auto addSpec = [this, mXmlSpec]( const QString & label, const QString & version, bool active ) {
+			QAction * a = mXmlSpec->addAction( label );
+			a->setCheckable( true );
+			a->setChecked( active );
+			connect( a, &QAction::triggered, this, [this, version]() {
+				NifModel::setOverlaySpecSelection( version );
+				if ( NifModel::loadXML() && ui->aReload->isEnabled() )
+					reload();
+			} );
+		};
+
+		for ( const NifModel::XmlOverlaySpec & spec : NifModel::overlaySpecs ) {
+			addSpec( spec.isDefault ? tr( "%1 (default)" ).arg( spec.name ) : spec.name,
+					 spec.version, spec.version == NifModel::activeOverlaySpec );
+		}
+		mXmlSpec->addSeparator();
+		addSpec( tr( "Disabled" ), QString::fromLatin1( NifModel::overlaySpecOff ), NifModel::activeOverlaySpec.isEmpty() );
+	} );
 }
 
 

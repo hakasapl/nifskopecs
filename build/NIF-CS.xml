@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE niftoolsxml>
+<niftoolsxml version="0.10.0.0">
+
+    <!--
+    NIF-CS.xml: Community Shaders (https://github.com/community-shaders/skyrim-community-shaders)
+    additions to nif.xml. NifSkope loads this file after nif.xml from the same folder, so that
+    nif.xml itself stays unchanged.
+
+    SPECS
+    All Community Shaders changes live in <spec> elements. Only one spec is applied at a time:
+    the one selected in File > Community Shaders PBR Spec, or the spec with default="true".
+    Selecting another spec reloads the XML and the current NIF. When Community Shaders changes
+    its PBR NIF format, add a new <spec version="2" ...> beside version 1, and move
+    default="true" to it once it is released. Keep version 1 so that older NIFs can still be
+    inspected.
+
+    PATCHES
+    Besides declaring new types as in nif.xml, a spec can patch existing declarations with
+    patch="true":
+    - enum / bitflags: each option adds or replaces the option with the same value.
+    - niobject / struct: each field is one of these operations, applied in order:
+      - rename="New Name" [hide="true"] cond="..." [vercond="..."]
+        Display-only: show the existing field as "New Name" while the conditions hold. The field
+        keeps its name, type and value, so code reading it is unaffected. The element text
+        replaces the description. For several renames of a field, the first match is shown.
+        With hide="true" (rename is then optional), the field is also hidden in the tree view
+        while the conditions hold, but still read and written. Hidden fields are shown again
+        when NifSkope is set to show non-applicable rows.
+      - value="N" rename="New Name" cond="..." [vercond="..."]
+        Display-only: show the enum option N of the existing field as "New Name" while the
+        conditions hold, in the value and in the editor. The stored value is unchanged.
+      - andcond="..." [vercond="..."]
+        The existing field is only read/written if this condition also holds. With vercond, the
+        restriction only applies to the versions matching vercond.
+      - after="Existing Field" plus the usual field attributes [hide="true"]
+        Insert a new field after the last field named "Existing Field" (and after the fields
+        inserted there before). With hide="true", the new field is always hidden.
+    Tokens declared inside a spec are replaced before the nif.xml tokens, so they can use them.
+    -->
+
+
+    <!--
+    Community Shaders TruePBR, NIF format v1.
+
+    Source: src/TruePBR.cpp (BSLightingShaderProperty_LoadBinary, _PostLinkObject) and
+    src/TruePBR/BSLightingShaderMaterialPBR.cpp (LoadBinary) of Community Shaders.
+
+    PBR is enabled on a BSLightingShaderProperty (Skyrim / SSE) by Shader Flags 2 bit 23
+    (SLSF2 "Unused01", kMenuScreen in CommonLibSSE). The material is then read as for shader type
+    Default, so only shader types Default (0) and MultiLayer Parallax (11) are meaningful:
+    - The base material fields keep their place, with a PBR meaning (renamed below).
+    - Shader type MultiLayer Parallax: its 5 floats hold the coat, fuzz or glint parameters.
+    - Other shader types: Community Shaders does not read their own parameters.
+    With PBR, shader types Default and MultiLayer Parallax and the Shader Flags 2 bits are shown
+    under their PBR names, and fields that the active features do not use are hidden.
+
+    Features, selected by other Shader Flags 2 bits (CS decides in this order):
+    - Multi_Layer_Parallax (24): Two Layer (clear coat). Then also:
+        Soft_Lighting (25) Interlayer Parallax, Back_Lighting (27) Coat Normal,
+        Effect_Lighting (30) Colored Coat.
+    - else Back_Lighting (27): Hair Marschner, with no other features.
+    - else:
+        Anisotropic_Lighting (21) Thin Surface, Effect_Lighting (30) Foliage,
+        Rim_Lighting (26) Subsurface,
+        Soft_Lighting (25) Fuzz, or else Fit_Slope (12) Glint.
+
+    Textures (BSShaderTextureSet): 0 base color, 1 normal, 2 emissive, 3 displacement
+    (fuzz roughness in green, see PBRFuzz), 5 RMAOS (roughness, metallic, AO, specular level),
+    6 fuzz (color, weight) or coat normal (normal, roughness), 7 subsurface (color, thickness)
+    or coat (color, strength).
+
+    Extra data on the shader property, ignored with Two Layer and Hair Marschner (these cannot
+    be named here, since conditions cannot test the extra data name):
+    - NiFloatsExtraData "PBRThinSurface", 4 floats: subsurface balance (0-1, default 0.75),
+      thin surface front specular weight (0-1, default 0.5), back specular weight (0-1,
+      default 0.5), back roughness scale (0-3, default 1).
+    - NiFloatsExtraData "PBRFuzz", 2 floats: fuzz roughness (0-1, negative uses the base
+      roughness), use the displacement texture green channel as fuzz roughness (0 or 1).
+    -->
+    <spec version="1" name="v1: TruePBR, Shader Flags 2 bit 23" default="true">
+
+        <token name="cspbr1" attrs="cond">
+            Community Shaders PBR v1 features, from Shader Flags 2.
+            NOTE: Composite tokens first, so that the tokens they use are replaced after them.
+            NOTE: NifExpr applies ! to everything after it, so negated terms must be in parentheses.
+            <cspbr1 token="#CS1_NO_LAYER_PARAMS#" string="(#CS1_PBR# #AND# (!#CS1_TWO_LAYER#) #AND# (!#CS1_FUZZ#) #AND# (!#CS1_GLINT#))">PBR without Two Layer, Fuzz or Glint.</cspbr1>
+            <cspbr1 token="#CS1_PBR#" string="((Shader Flags 2 #BITAND# 0x800000) != 0)">PBR.</cspbr1>
+            <cspbr1 token="#CS1_NOT_PBR#" string="((Shader Flags 2 #BITAND# 0x800000) == 0)">Not PBR.</cspbr1>
+            <cspbr1 token="#CS1_TWO_LAYER#" string="((Shader Flags 2 #BITAND# 0x1800000) == 0x1800000)">PBR, Multi_Layer_Parallax.</cspbr1>
+            <cspbr1 token="#CS1_SUBSURFACE#" string="((Shader Flags 2 #BITAND# 0xD800000) == 0x4800000)">PBR, Rim_Lighting, not Multi_Layer_Parallax or Back_Lighting.</cspbr1>
+            <cspbr1 token="#CS1_FUZZ#" string="((Shader Flags 2 #BITAND# 0xB800000) == 0x2800000)">PBR, Soft_Lighting, not Multi_Layer_Parallax or Back_Lighting.</cspbr1>
+            <cspbr1 token="#CS1_GLINT#" string="((Shader Flags 2 #BITAND# 0xB801000) == 0x801000)">PBR, Fit_Slope, not Multi_Layer_Parallax, Back_Lighting or Soft_Lighting.</cspbr1>
+        </token>
+
+        <!-- Unused01 keeps its name; once set, the Shader Flags 2 bits show their PBR names (below) -->
+        <bitflags name="SkyrimShaderPropertyFlags2" patch="true">
+            <option bit="23" name="Unused01">Unused? Community Shaders: enables TruePBR (kMenuScreen). The material fields and flags are then shown under their PBR names. Textures: 0 base color, 1 normal, 2 emissive, 3 displacement, 5 RMAOS, 6 fuzz or coat normal, 7 subsurface or coat.</option>
+        </bitflags>
+
+        <!-- Shader Type (declared in NiObjectNET for BSLightingShaderProperty): PBR names of the
+             two shader types that PBR uses; the others keep their names -->
+        <niobject name="NiObjectNET" patch="true">
+            <field name="Shader Type" value="0" rename="PBR" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR material, the features are selected by Shader Flags 2. Coat, fuzz and glint parameters are the defaults: use PBR Two Layer/Fuzz/Glint to set them (the default fuzz weight is 0).</field>
+            <field name="Shader Type" value="11" rename="PBR Two Layer/Fuzz/Glint" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR material with the coat (Two_Layer), fuzz (Fuzz) or glint (Glint) parameters, depending on Shader Flags 2.</field>
+        </niobject>
+
+        <niobject name="BSLightingShaderProperty" patch="true">
+            <!-- Shader Flags 2 bits: PBR names, in the order Community Shaders decides the features -->
+            <field name="Shader Flags 2" value="23" rename="PBR" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Community Shaders TruePBR.</field>
+            <field name="Shader Flags 2" value="24" rename="Two_Layer" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Two Layer (clear coat) model.</field>
+            <field name="Shader Flags 2" value="25" rename="Interlayer_Parallax" vercond="#BS_SKY_SSE#" cond="#CS1_TWO_LAYER#">Two Layer: parallax between the layers.</field>
+            <field name="Shader Flags 2" value="25" rename="Fuzz" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Fuzz (sheen), without Two_Layer and Hair_Marschner.</field>
+            <field name="Shader Flags 2" value="27" rename="Coat_Normal" vercond="#BS_SKY_SSE#" cond="#CS1_TWO_LAYER#">Two Layer: coat normal map (texture 6).</field>
+            <field name="Shader Flags 2" value="27" rename="Hair_Marschner" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Marschner hair shading, without Two_Layer. Disables the other features.</field>
+            <field name="Shader Flags 2" value="30" rename="Colored_Coat" vercond="#BS_SKY_SSE#" cond="#CS1_TWO_LAYER#">Two Layer: the coat color tints the diffuse lighting.</field>
+            <field name="Shader Flags 2" value="30" rename="Foliage" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Foliage, without Two_Layer and Hair_Marschner.</field>
+            <field name="Shader Flags 2" value="26" rename="Subsurface" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Subsurface scattering, without Two_Layer and Hair_Marschner.</field>
+            <field name="Shader Flags 2" value="21" rename="Thin_Surface" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Thin Surface (light transmission through thin geometry), without Two_Layer and Hair_Marschner. Parameters from a "PBRThinSurface" NiFloatsExtraData.</field>
+            <field name="Shader Flags 2" value="12" rename="Glint" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">Glint, without Two_Layer, Hair_Marschner and Fuzz. The parameters are read with shader type MultiLayer Parallax, otherwise defaults are used.</field>
+
+            <!-- Base material fields used as in vanilla, except as described -->
+            <field name="Emissive Color" rename="Emissive Color" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: multiplies the emissive texture (2), with Own_Emit. No effect without an emissive texture.</field>
+            <field name="Emissive Multiple" rename="Emissive Multiple" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: multiplies the emissive texture (2). No effect without an emissive texture.</field>
+
+            <!-- Base material fields: same place, PBR meaning -->
+            <field name="Glossiness" rename="Specular Level" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: specular reflectance (F0) of non-metals, multiplied by the RMAOS alpha. Usually 0.04.</field>
+
+            <field name="Specular Color" rename="Coat Color" vercond="#BS_SKY_SSE#" cond="#CS1_TWO_LAYER#">PBR Two Layer: coat color, multiplied by the coat texture (7) color.</field>
+            <field name="Specular Color" rename="Subsurface Color" vercond="#BS_SKY_SSE#" cond="#CS1_SUBSURFACE#">PBR Subsurface: subsurface color, multiplied by the subsurface texture (7) color.</field>
+            <field name="Specular Color" rename="Unused Color" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: unused. Subsurface Color with Rim_Lighting, Coat Color with Multi_Layer_Parallax (not with Back_Lighting alone).</field>
+
+            <field name="Specular Strength" rename="Roughness Scale" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: multiplies the RMAOS roughness.</field>
+
+            <field name="Lighting Effect 1" rename="Coat Strength" vercond="#BS_SKY_SSE#" cond="#CS1_TWO_LAYER#">PBR Two Layer: coat strength, multiplied by the coat texture (7) alpha.</field>
+            <field name="Lighting Effect 1" rename="Subsurface Opacity" vercond="#BS_SKY_SSE#" cond="#CS1_SUBSURFACE#">PBR Subsurface: subsurface opacity (thickness), multiplied by the subsurface texture (7) alpha.</field>
+            <field name="Lighting Effect 1" rename="Unused" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: unused. Subsurface Opacity with Rim_Lighting, Coat Strength with Multi_Layer_Parallax (not with Back_Lighting alone).</field>
+
+            <field name="Lighting Effect 2" rename="Displacement Scale" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: height scale of the displacement texture (3).</field>
+
+            <!-- MultiLayer Parallax parameters: PBR reads the same 5 floats with another layout -->
+            <field name="Parallax Inner Layer Thickness" vercond="#BS_SKY_SSE#" andcond="#CS1_NOT_PBR#" />
+            <field name="Parallax Refraction Scale" vercond="#BS_SKY_SSE#" andcond="#CS1_NOT_PBR#" />
+            <field name="Parallax Inner Layer Texture Scale" vercond="#BS_SKY_SSE#" andcond="#CS1_NOT_PBR#" />
+            <field name="Parallax Envmap Strength" vercond="#BS_SKY_SSE#" andcond="#CS1_NOT_PBR#" />
+
+            <field name="Coat Roughness" type="float" default="1.0" range="#F0_1#" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_TWO_LAYER#" after="Parallax Envmap Strength">PBR Two Layer: coat roughness, multiplied by the coat normal texture (6) alpha.</field>
+            <field name="Coat Specular Level" type="float" default="0.04" range="#F0_1#" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_TWO_LAYER#" after="Parallax Envmap Strength">PBR Two Layer: specular reflectance (F0) of the coat.</field>
+            <field name="Unused" type="float" length="3" hide="true" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_TWO_LAYER#" after="Parallax Envmap Strength">PBR Two Layer: unused.</field>
+
+            <field name="Fuzz Color" type="Color3" default="#VEC3_ONE#" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_FUZZ#" after="Parallax Envmap Strength">PBR Fuzz: fuzz color, multiplied by the fuzz texture (6) color.</field>
+            <field name="Fuzz Weight" type="float" default="1.0" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_FUZZ#" after="Parallax Envmap Strength">PBR Fuzz: fuzz weight, multiplied by the fuzz texture (6) alpha.</field>
+            <field name="Fuzz Roughness" type="float" default="1.0" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_FUZZ#" after="Parallax Envmap Strength">PBR Fuzz: fuzz roughness if below 1, otherwise the base roughness is used. A "PBRFuzz" NiFloatsExtraData overrides it.</field>
+
+            <field name="Glint Screen Space Scale" type="float" default="1.5" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_GLINT#" after="Parallax Envmap Strength">PBR Glint: screen space scale.</field>
+            <field name="Glint Log Microfacet Density" type="float" default="40.0" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_GLINT#" after="Parallax Envmap Strength">PBR Glint: log microfacet density.</field>
+            <field name="Glint Microfacet Roughness" type="float" default="0.015" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_GLINT#" after="Parallax Envmap Strength">PBR Glint: microfacet roughness.</field>
+            <field name="Glint Density Randomization" type="float" default="2.0" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_GLINT#" after="Parallax Envmap Strength">PBR Glint: density randomization.</field>
+            <field name="Unused" type="float" default="1.0" hide="true" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_GLINT#" after="Parallax Envmap Strength">PBR Glint: unused (fuzz roughness with Fuzz).</field>
+
+            <field name="Unused" type="float" length="5" hide="true" vercond="#BS_SKY_SSE#" cond="(Shader Type == 11) #AND# #CS1_NO_LAYER_PARAMS#" after="Parallax Envmap Strength">PBR without Two Layer, Fuzz or Glint: unused. Coat parameters with Multi_Layer_Parallax, fuzz parameters with Soft_Lighting, glint parameters with Fit_Slope.</field>
+
+            <!-- Parameters of the other shader types: not read by Community Shaders with PBR -->
+            <field name="Environment Map Scale" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Environment Map shader type.</field>
+            <field name="Skin Tint Color" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Skin Tint shader type.</field>
+            <field name="Hair Tint Color" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Hair Tint shader type.</field>
+            <field name="Max Passes" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Parallax Occ shader type.</field>
+            <field name="Scale" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Parallax Occ shader type.</field>
+            <field name="Sparkle Parameters" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Sparkle Snow shader type.</field>
+            <field name="Eye Cubemap Scale" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
+            <field name="Left Eye Reflection Center" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
+            <field name="Right Eye Reflection Center" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
+        </niobject>
+
+    </spec>
+
+</niftoolsxml>

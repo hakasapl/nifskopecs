@@ -38,6 +38,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QCoreApplication>
 #include <QDir>
 #include <QMessageBox>
+#include <QSettings>
 #include <QXmlStreamReader>
 
 
@@ -52,12 +53,19 @@ QHash<QString, NifBlockPtr> NifModel::compounds;
 QHash<QString, NifBlockPtr> NifModel::fixedCompounds;
 QHash<QString, NifBlockPtr> NifModel::blocks;
 QMap<quint32, NifBlockPtr> NifModel::blockHashes;
+QList<NifModel::XmlOverlaySpec> NifModel::overlaySpecs;
+QString                    NifModel::activeOverlaySpec;
 
 
 // Current token attribute list
 QString attrlist;
 // Token storage
 QMap<QString, QVector<QPair<QString, QString>>> tokens;
+// Token storage of the XML overlay, replaced before the nif.xml tokens so that it can use them
+QMap<QString, QVector<QPair<QString, QString>>> overlayTokens;
+
+// Settings key of the XML overlay spec selection
+static const char * overlaySpecKey = "XML/NIF-CS Spec";
 
 //! Parses nif.xml
 class NifXmlHandler final
@@ -96,7 +104,23 @@ public:
 	static inline QString tr( const char * key, const char * comment = 0 ) { return QCoreApplication::translate( "NifXmlHandler", key, comment ); }
 
 	//! Constructor
-	NifXmlHandler()
+	/*!
+	 * \param overlay Parse an XML overlay (NIF-CS.xml) on top of the already parsed nif.xml.
+	 * An overlay may declare new types like nif.xml, and patch existing ones with patch="true":
+	 * - enum / bitflags: each option adds or replaces the option with the same value.
+	 * - niobject / struct: each field is one of these operations, applied in document order:
+	 *   - rename="New Name" [hide="true"] cond="..." [vercond="..."]: show the existing field (all
+	 *     fields named "name") as "New Name" while the conditions hold. Display-only, the field and
+	 *     its value are unchanged. The text of the element replaces the description while renamed.
+	 *     With hide="true" (rename optional), the field is also hidden in the tree view.
+	 *     With value="N", the enum option N of the field is renamed instead of the field.
+	 *   - andcond="..." [vercond="..."]: the existing field is only present if this condition also
+	 *     holds. With vercond, the restriction only applies to the versions matching vercond.
+	 *   - after="Existing Field" plus the usual field attributes: insert a new field after the
+	 *     last field named "Existing Field" (and after fields inserted there before).
+	 *     With hide="true", the new field is always hidden in the tree view.
+	 */
+	NifXmlHandler( bool overlay = false ) : isOverlay( overlay )
 	{
 		tags.insert( "niftoolsxml", tagFile );
 		tags.insert( "version", tagVersion );
@@ -114,8 +138,40 @@ public:
 		tags.insert( "member", tagMember );
 		tags.insert( "verattr", tagVerAttr );
 
-		tokens.clear();
+		if ( isOverlay )
+			overlayTokens.clear();
+		else
+			tokens.clear();
 	}
+
+	//! Field operations of a patch (see constructor)
+	enum PatchOp
+	{
+		opNone = 0,
+		opRename,
+		opAndCond,
+		opInsert
+	};
+
+	//! Parsing an XML overlay
+	bool isOverlay = false;
+	//! Description of the active overlay spec, stored with renamed fields
+	QString overlayOrigin;
+	//! The current niobject, struct, enum or bitflags patches an existing declaration
+	bool isPatch = false;
+	//! Operation of the current patch field
+	PatchOp patchOp = opNone;
+	//! Name of the existing field that the current patch field renames, restricts, or is inserted after
+	QString patchTarget;
+	//! New name, condition and version condition of the current patch field
+	QString patchRename;
+	QString patchCond;
+	QString patchVerCond;
+	//! The current patch field hides the field (hide="true"), or renames an enum option of it (value="...")
+	bool patchHide = false;
+	QString patchValue;
+	//! Next insertion index in the patched block, by the name of the field to insert after
+	QHash<QString, int> patchInsertPos;
 
 	//! Current position on stack
 	int depth = 0;
@@ -161,17 +217,54 @@ public:
 		return stack[--depth];
 	}
 
-	QString token_replace( const QXmlStreamAttributes & list, const QString & attr )
+	static void replaceTokens( QString & str, const QMap<QString, QVector<QPair<QString, QString>>> & tokenMap, const QString & attr )
+	{
+		auto it = tokenMap.constFind( attr );
+		if ( it == tokenMap.constEnd() )
+			return;
+
+		for ( const auto& p : *it )
+			if ( p.second == "INFINITY" )
+				str.replace(p.first, "0x7F800000");
+			else
+				str.replace( p.first, p.second );
+	}
+
+	/*!
+	 * \param attr Attribute to read
+	 * \param tokenAttr Attribute whose tokens to replace, if it differs from attr
+	 */
+	QString token_replace( const QXmlStreamAttributes & list, const QString & attr, const QString & tokenAttr = QString() )
 	{
 		QString str = list.value( attr ).toString();
-		if ( tokens.contains( attr ) ) {
-			for ( const auto& p : tokens[attr] )
-				if ( p.second == "INFINITY" )
-					str.replace(p.first, "0x7F800000");
-				else
-					str.replace( p.first, p.second );
-		}
+		const QString & a = tokenAttr.isEmpty() ? attr : tokenAttr;
+		if ( isOverlay )
+			replaceTokens( str, overlayTokens, a );
+		replaceTokens( str, tokens, a );
 		return str;
+	}
+
+	//! Does the patched block have a field with this name?
+	bool patchHasField( const QString & name ) const
+	{
+		for ( const NifData & d : blk->types ) {
+			if ( d.name() == name )
+				return true;
+		}
+		return false;
+	}
+
+	//! Is an attribute value "1" or "true"?
+	template <typename T>
+	static bool isTrue( const T & v )
+	{
+		return ( v == QLatin1StringView("1") || v == QLatin1StringView("true") );
+	}
+
+	//! Is the element a patch of an existing declaration (patch="true")?
+	static bool isPatchElement( const QXmlStreamAttributes & list )
+	{
+		return isTrue( list.value( QLatin1StringView("patch") ) );
 	}
 
 	/*!
@@ -210,6 +303,34 @@ public:
 		switch ( current() ) {
 		case tagFile:
 			push( x );
+
+			if ( isPatchElement( list ) ) {
+				if ( !isOverlay )
+					err( tr( "patch=\"true\" is only allowed in an XML overlay" ) );
+
+				QString name = list.value( QLatin1StringView("name") ).toString();
+				switch ( x ) {
+				case tagCompound:
+				case tagBlock:
+					blk = ( x == tagBlock ) ? NifModel::blocks.value( name ) : NifModel::compounds.value( name );
+					if ( !blk )
+						err( tr( "patch of undeclared %1 %2" ).arg( tagid, name ) );
+					break;
+				case tagEnum:
+				case tagBitFlag:
+					if ( NifValue::enumType( name ) == NifValue::eNone )
+						err( tr( "patch of undeclared %1 %2" ).arg( tagid, name ) );
+					typId = name;
+					typTxt = QString();
+					break;
+				default:
+					err( tr( "patch=\"true\" is not supported for %1" ).arg( tagid ) );
+				}
+
+				isPatch = true;
+				patchInsertPos.clear();
+				break;
+			}
 
 			switch ( x ) {
 			case tagCompound:
@@ -334,6 +455,51 @@ public:
 
 			switch ( x ) {
 			case tagAdd:
+				patchOp = opNone;
+				if ( isPatch ) {
+					patchTarget = list.value( QLatin1StringView("name") ).toString();
+					patchRename = list.value( QLatin1StringView("rename") ).toString();
+					patchHide = isTrue( list.value( QLatin1StringView("hide") ) );
+					patchValue = list.value( QLatin1StringView("value") ).toString();
+					QString andCond = token_replace( list, "andcond", "cond" );
+					QString after = list.value( QLatin1StringView("after") ).toString();
+					bool isAlias = !patchRename.isEmpty() || ( patchHide && after.isEmpty() );
+
+					if ( int( isAlias ) + int( !andCond.isEmpty() ) + int( !after.isEmpty() ) != 1 )
+						err( tr( "patch field %1 in %2 needs exactly one of the attributes rename/hide, andcond or after" ).arg( patchTarget, blk->id ) );
+
+					if ( !patchValue.isEmpty() ) {
+						bool ok = false;
+						patchValue.toUInt( &ok, 0 );
+						if ( !ok || patchRename.isEmpty() || patchHide )
+							err( tr( "patch field %1 in %2: value needs a number and rename, and cannot hide" ).arg( patchTarget, blk->id ) );
+					}
+
+					if ( !after.isEmpty() ) {
+						// Insert a new field: parsed like any other field below
+						patchOp = opInsert;
+						patchTarget = after;
+						if ( !patchHasField( patchTarget ) )
+							err( tr( "%1 has no field %2 to insert after" ).arg( blk->id, patchTarget ) );
+					} else {
+						if ( !patchHasField( patchTarget ) )
+							err( tr( "%1 has no field %2 to patch" ).arg( blk->id, patchTarget ) );
+
+						if ( isAlias ) {
+							patchOp = opRename;
+							patchCond = get( "cond" );
+						} else {
+							patchOp = opAndCond;
+							patchCond = andCond;
+						}
+						patchVerCond = get( "vercond" );
+
+						// Only collects the description text, applied in endElement
+						data = NifData( patchTarget );
+						break;
+					}
+				}
+
 				{
 					QString type = list.value( QLatin1StringView("type") ).toString();
 					QString tmpl = list.value( QLatin1StringView("template") ).toString();
@@ -514,11 +680,12 @@ public:
 				{
 					auto tok = list.value( QLatin1StringView("token") ).toString();
 					auto str = list.value( QLatin1StringView("string") ).toString();
+					auto & tokenMap = isOverlay ? overlayTokens : tokens;
 					for ( const auto & attr : attrlist.split( " " ) ) {
-						if ( !tokens.contains(attr) )
-							tokens[attr] = {};
+						if ( !tokenMap.contains(attr) )
+							tokenMap[attr] = {};
 
-						tokens[attr].append( {tok, str} );
+						tokenMap[attr].append( {tok, str} );
 					}
 				}
 				break;
@@ -535,6 +702,109 @@ public:
 		}
 	}
 
+	//! Logical AND of two condition strings (with operator tokens already replaced)
+	static QString joinConditions( const QString & a, const QString & b )
+	{
+		return a.isEmpty() ? QString( "(%1)" ).arg( b ) : QString( "(%1) && (%2)" ).arg( a, b );
+	}
+
+	//! Applies the field that just ended in a patched niobject or struct (see constructor)
+	void applyPatchField()
+	{
+		switch ( patchOp ) {
+		case opRename:
+			{
+				NifFieldAlias alias;
+				alias.name = patchRename.isEmpty() ? patchTarget : patchRename;
+				alias.hidden = patchHide;
+				if ( !patchValue.isEmpty() ) {
+					alias.isValueAlias = true;
+					alias.value = patchValue.toUInt( nullptr, 0 );
+				}
+				alias.text = data.text();
+				alias.origin = overlayOrigin;
+				alias.cond = patchCond;
+				alias.condexpr = NifExpr( patchCond );
+				alias.vercond = patchVerCond;
+				alias.verexpr = NifExpr( patchVerCond );
+
+				for ( NifData & d : blk->types ) {
+					if ( d.name() == patchTarget )
+						d.addAlias( alias );
+				}
+			}
+			break;
+		case opAndCond:
+			for ( int i = 0; i < blk->types.size(); i++ ) {
+				if ( blk->types.at( i ).name() != patchTarget )
+					continue;
+				if ( blk->types.at( i ).hasTypeCondition() )
+					err( tr( "andcond is not supported for field %1 of %2 (onlyT/excludeT)" ).arg( patchTarget, blk->id ) );
+
+				NifData restricted = blk->types.at( i );
+				restricted.setCond( joinConditions( restricted.cond(), patchCond ) );
+				restricted.setIsConditionless( false );
+
+				if ( patchVerCond.isEmpty() ) {
+					blk->types[i] = restricted;
+					continue;
+				}
+
+				// Restrict only the versions matching vercond: split the field into an unrestricted
+				// copy for the other versions, followed by the restricted copy for these versions
+				restricted.setVerCond( joinConditions( restricted.vercond(), patchVerCond ) );
+
+				NifData & other = blk->types[i];
+				other.setVerCond( joinConditions( other.vercond(), QString( "!(%1)" ).arg( patchVerCond ) ) );
+				other.setIsConditionless( false );
+
+				blk->types.insert( i + 1, restricted );
+				for ( auto it = patchInsertPos.begin(); it != patchInsertPos.end(); ++it ) {
+					if ( it.value() > i )
+						it.value()++;
+				}
+				i++;
+			}
+			break;
+		case opInsert:
+			{
+				int pos = patchInsertPos.value( patchTarget, -1 );
+				if ( pos < 0 ) {
+					for ( int i = blk->types.size() - 1; i >= 0; i-- ) {
+						if ( blk->types.at( i ).name() == patchTarget ) {
+							pos = i + 1;
+							break;
+						}
+					}
+				}
+				if ( pos < 0 )
+					err( tr( "%1 has no field %2 to insert after" ).arg( blk->id, patchTarget ) );
+
+				if ( patchHide ) {
+					// Always hidden in the tree view while present
+					NifFieldAlias alias;
+					alias.name = data.name();
+					alias.hidden = true;
+					alias.origin = overlayOrigin;
+					data.addAlias( alias );
+				}
+
+				blk->types.insert( pos, data );
+				// Keep the pending insertion points behind the new field
+				for ( auto it = patchInsertPos.begin(); it != patchInsertPos.end(); ++it ) {
+					if ( it.value() >= pos )
+						it.value()++;
+				}
+				patchInsertPos[patchTarget] = pos + 1;
+			}
+			break;
+		default:
+			break;
+		}
+
+		patchOp = opNone;
+	}
+
 	/*!
 	 * \param tagid Qualified name
 	 */
@@ -547,6 +817,13 @@ public:
 
 		if ( pop() != x )
 			err( tr( "mismatching end element tag for element %1" ).arg( tagid ) );
+
+		if ( isPatch && depth == 1 ) {
+			// End of a patch: the declaration is already registered, and its description is kept
+			blk = nullptr;
+			isPatch = false;
+			return;
+		}
 
 		switch ( x ) {
 		case tagCompound:
@@ -580,8 +857,11 @@ public:
 
 			break;
 		case tagAdd:
-			if ( blk )
+			if ( isPatch ) {
+				applyPatchField();
+			} else if ( blk ) {
 				blk->types.append( data );
+			}
 
 			break;
 		case tagOption:
@@ -589,8 +869,15 @@ public:
 				bool ok;
 				quint32 optValInt = optVal.toUInt( &ok, 0 );
 
-				if ( !ok || !NifValue::registerEnumOption( typId, optId, optValInt, optTxt ) )
+				if ( !ok )
 					err( tr( "failed to register enum option" ) );
+
+				if ( isPatch ) {
+					if ( !NifValue::replaceEnumOption( typId, optId, optValInt, optTxt ) )
+						err( tr( "failed to replace enum option" ) );
+				} else if ( !NifValue::registerEnumOption( typId, optId, optValInt, optTxt ) ) {
+					err( tr( "failed to register enum option" ) );
+				}
 			}
 			break;
 		case tagBasic:
@@ -612,6 +899,8 @@ public:
 			break;
 		case tagCompound:
 		case tagBlock:
+			if ( isPatch )
+				break;
 			if ( blk )
 				blk->text += s.trimmed();
 			else
@@ -696,26 +985,30 @@ public:
 	}
 };
 
-// documented in nifmodel.h
-bool NifModel::loadXML()
+//! Find an XML file in the application folder (or the platform's shared data folder)
+static QString findXmlFile( const QString & name )
 {
 	QDir        dir( QCoreApplication::applicationDirPath() );
-	QString     fname;
 	QStringList xmlList( QStringList()
-						 << "nif.xml"
+						 << name
 #ifdef Q_OS_LINUX
-						 << "/usr/share/nifskope/nif.xml"
+						 << ( "/usr/share/nifskope/" + name )
 #endif
 #ifdef Q_OS_MACOS
-						 << "../../../nif.xml"
+						 << ( "../../../" + name )
 #endif
 	);
 	for ( const QString& str : xmlList ) {
-		if ( dir.exists( str ) ) {
-			fname = dir.filePath( str );
-			break;
-		}
+		if ( dir.exists( str ) )
+			return dir.filePath( str );
 	}
+	return QString();
+}
+
+// documented in nifmodel.h
+bool NifModel::loadXML()
+{
+	QString fname = findXmlFile( "nif.xml" );
 	QString result = NifModel::parseXmlDescription( fname );
 
 	if ( !result.isEmpty() ) {
@@ -723,7 +1016,149 @@ bool NifModel::loadXML()
 		return false;
 	}
 
+	// Optional overlay with third party additions (Community Shaders), kept out of nif.xml
+	activeOverlaySpec.clear();
+	QString overlayName = findXmlFile( overlayFileName );
+	if ( overlayName.isEmpty() ) {
+		overlaySpecs.clear();
+		return true;
+	}
+
+	result = NifModel::parseXmlOverlay( overlayName );
+	if ( !result.isEmpty() ) {
+		Message::append( tr( "<b>Error loading %1</b><br/>Continuing with nif.xml only." ).arg( QString::fromLatin1( overlayFileName ) ), result, QMessageBox::Warning );
+
+		// The overlay may be partly applied, start over without it
+		result = NifModel::parseXmlDescription( fname );
+		if ( !result.isEmpty() ) {
+			Message::append( tr( "<b>Error loading XML</b><br/>You will need to reinstall the XML and restart the application." ), result, QMessageBox::Critical );
+			return false;
+		}
+	}
+
 	return true;
+}
+
+// documented in nifmodel.h
+QString NifModel::overlaySpecSelection()
+{
+	return QSettings().value( overlaySpecKey ).toString();
+}
+
+// documented in nifmodel.h
+void NifModel::setOverlaySpecSelection( const QString & version )
+{
+	QSettings().setValue( overlaySpecKey, version );
+}
+
+// documented in nifmodel.h
+QString NifModel::parseXmlOverlay( const QString & filename )
+{
+	QWriteLocker lck( &XMLlock );
+
+	overlaySpecs.clear();
+
+	QFile f( filename );
+	if ( !f.open( QIODevice::ReadOnly | QIODevice::Text ) )
+		return tr( "Couldn't open XML overlay file: %1" ).arg( filename );
+
+	// First pass: list the specs
+	{
+		QXmlStreamReader reader( &f );
+		while ( !reader.atEnd() ) {
+			reader.readNext();
+			if ( reader.isStartElement() && reader.name() == QLatin1StringView("spec") ) {
+				const QXmlStreamAttributes attrs = reader.attributes();
+				XmlOverlaySpec spec;
+				spec.version = attrs.value( QLatin1StringView("version") ).toString();
+				spec.name = attrs.value( QLatin1StringView("name") ).toString();
+				auto d = attrs.value( QLatin1StringView("default") );
+				spec.isDefault = ( d == QLatin1StringView("1") || d == QLatin1StringView("true") );
+				if ( spec.version.isEmpty() )
+					return tr( "%1 XML parse error (line %2): spec without a version" ).arg( QString::fromLatin1( overlayFileName ) ).arg( reader.lineNumber() );
+				if ( spec.name.isEmpty() )
+					spec.name = tr( "v%1" ).arg( spec.version );
+				overlaySpecs.append( spec );
+			}
+		}
+		if ( reader.hasError() )
+			return tr( "%1 XML parse error (line %2): %3" ).arg( QString::fromLatin1( overlayFileName ) ).arg( reader.lineNumber() ).arg( reader.errorString() );
+	}
+
+	// Pick the spec: the user's selection if it still exists, otherwise the default one
+	QString selected = overlaySpecSelection();
+	activeOverlaySpec.clear();
+	if ( selected != QLatin1StringView( overlaySpecOff ) ) {
+		for ( const XmlOverlaySpec & spec : overlaySpecs ) {
+			if ( spec.version == selected )
+				activeOverlaySpec = spec.version;
+		}
+		if ( activeOverlaySpec.isEmpty() ) {
+			for ( const XmlOverlaySpec & spec : overlaySpecs ) {
+				if ( spec.isDefault ) {
+					activeOverlaySpec = spec.version;
+					break;
+				}
+			}
+		}
+	}
+	QString activeName;
+	for ( const XmlOverlaySpec & spec : overlaySpecs ) {
+		if ( spec.version == activeOverlaySpec )
+			activeName = spec.name;
+	}
+
+	// Second pass: apply everything outside of <spec>, and the contents of the active spec
+	f.seek( 0 );
+	NifXmlHandler handler( true );
+	QXmlStreamReader reader( &f );
+	bool inSpec = false;
+	while ( !reader.atEnd() && handler.errorStr.isEmpty() ) {
+		reader.readNext();
+		if ( reader.isStartElement() ) {
+			if ( reader.name() == QLatin1StringView("spec") ) {
+				if ( inSpec || handler.depth != 1 ) {
+					handler.errorStr = tr( "spec must be a direct child of niftoolsxml" );
+					break;
+				}
+				if ( reader.attributes().value( QLatin1StringView("version") ) != activeOverlaySpec ) {
+					reader.skipCurrentElement();
+					continue;
+				}
+				inSpec = true;
+				handler.overlayOrigin = QString( "%1: %2" ).arg( QString::fromLatin1( overlayFileName ), activeName );
+				continue;
+			}
+			handler.startElement( reader.name().toString(), reader.attributes() );
+		} else if ( reader.isEndElement() ) {
+			if ( inSpec && handler.depth == 1 && reader.name() == QLatin1StringView("spec") ) {
+				inSpec = false;
+				handler.overlayOrigin.clear();
+				continue;
+			}
+			handler.endElement( reader.name().toString() );
+		} else if ( reader.isCharacters() ) {
+			handler.characters( reader.text().toString() );
+		} else if ( reader.isEndDocument() ) {
+			handler.endDocument();
+		}
+	}
+
+	QString errorStr;
+	if ( reader.hasError() ) {
+		errorStr = reader.errorString();
+		if ( errorStr.isEmpty() )
+			errorStr = tr( "Syntax error" );
+	} else {
+		errorStr = handler.errorString();
+	}
+
+	if ( !errorStr.isEmpty() ) {
+		activeOverlaySpec.clear();
+		errorStr.prepend( tr( "%1 XML parse error (line %2): " ).arg( QString::fromLatin1( overlayFileName ) ).arg( reader.lineNumber() ) );
+	}
+
+	return errorStr;
 }
 
 // documented in nifmodel.h

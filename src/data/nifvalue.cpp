@@ -210,6 +210,21 @@ bool NifValue::registerEnumOption( const QString & eid, const QString & oid, qui
 	return true;
 }
 
+bool NifValue::replaceEnumOption( const QString & eid, const QString & oid, quint32 oval, const QString & otxt )
+{
+	auto it = enumMap.find( eid );
+	if ( it == enumMap.end() )
+		return false;
+
+	QMap<quint32, QPair<QString, QString> > & e = it->o;
+	QString txt = otxt;
+	if ( txt.isEmpty() && e.contains( oval ) )
+		txt = e[oval].second;
+
+	e[oval] = QPair<QString, QString>( oid, txt );
+	return true;
+}
+
 QStringList NifValue::enumOptions( const QString & eid )
 {
 	QStringList opts;
@@ -242,6 +257,11 @@ NifValue::EnumType NifValue::enumType( const QString & eid )
 
 QString NifValue::enumOptionName( const QString & eid, quint32 val )
 {
+	return enumOptionName( eid, val, QHash<quint32, QString>() );
+}
+
+QString NifValue::enumOptionName( const QString & eid, quint32 val, const QHash<quint32, QString> & renamedOptions )
+{
 	if ( enumMap.contains( eid ) ) {
 		NifValue::EnumOptions & eo = enumMap[eid];
 
@@ -266,7 +286,7 @@ QString NifValue::enumOptionName( const QString & eid, quint32 val )
 					if ( it != eo.o.constEnd() && opt != 0 && opt % OPT_PER_LINE == 0 )
 						text += "\n";
 
-					text += it.value().first;
+					text += renamedOptions.value( it.key(), it.value().first );
 
 					opt++;
 				}
@@ -286,7 +306,7 @@ QString NifValue::enumOptionName( const QString & eid, quint32 val )
 			return text;
 		} else if ( eo.t == NifValue::eDefault ) {
 			if ( eo.o.contains( val ) )
-				return eo.o.value( val ).first;
+				return renamedOptions.value( val, eo.o.value( val ).first );
 		}
 
 		return QString::number( val );

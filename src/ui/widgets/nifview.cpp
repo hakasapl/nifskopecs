@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "spellbook.h"
 #include "model/basemodel.h"
+#include "model/nifmodel.h"
 #include "model/nifproxymodel.h"
 #include "model/undocommands.h"
 
@@ -114,6 +115,13 @@ bool NifTreeView::isRowHidden( const NifItem * rowItem ) const
 		if ( doRowHiding || rowItem->hasTypeCondition() ) {
 			if ( !nif->evalCondition( rowItem ) )
 				return true;
+
+			// Display-only hiding by XML overlays (NIF-CS.xml), e.g. fields unused by a PBR feature
+			if ( doRowHiding && !rowItem->aliases().isEmpty() ) {
+				auto nifModel = qobject_cast<const NifModel *>( nif );
+				if ( nifModel && nifModel->isHiddenByAlias( rowItem ) )
+					return true;
+			}
 		} else {
 			if ( !nif->evalVersion( rowItem ) )
 				return true;

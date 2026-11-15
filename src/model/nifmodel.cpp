@@ -1268,6 +1268,9 @@ QVariant NifModel::data( const QModelIndex & index, int role ) const
 						return QString( namePrefix % pseudonymMap.value( item->name(), item->name() ) % SPACE_QSTRING % QString::number( item->row() ) );
 					}
 
+					if ( const NifFieldAlias * alias = activeFieldAlias( item ) )
+						return namePrefix + alias->name;
+
 					return namePrefix + item->name();
 				}
 				break;
@@ -1361,7 +1364,7 @@ QVariant NifModel::data( const QModelIndex & index, int role ) const
 						if ( item->hasStrType("BSVertexDesc") )
 							return item->get<BSVertexDesc>().toString();
 
-						QString optId = NifValue::enumOptionName( item->strType(), item->getCountValue() );
+						QString optId = enumValueName( item, quint32( item->getCountValue() ) );
 						if ( optId.isEmpty() )
 							return item->getValueAsString();
 
@@ -1447,9 +1450,16 @@ QVariant NifModel::data( const QModelIndex & index, int role ) const
 					if ( isArray( item->parent() ) ) {
 						return QString();
 					} else {
+						const NifFieldAlias * alias = activeFieldAlias( item );
+						const QString & tipText = ( alias && !alias->text.isEmpty() ) ? alias->text : item->text();
 						QString tip = QString( "<p><b>%1</b></p><p>%2</p>" )
-						              .arg( item->name() )
-						              .arg( QString( item->text() ).replace( "<", "&lt;" ).replace( "\n", "<br/>" ) );
+						              .arg( alias ? alias->name : item->name() )
+						              .arg( QString( tipText ).replace( "<", "&lt;" ).replace( "\n", "<br/>" ) );
+
+						if ( alias ) {
+							tip += QString( "<p><i>Stored in the \"%1\" field, renamed by %2.</i></p>" )
+							       .arg( item->name(), QString( alias->origin ).replace( "<", "&lt;" ) );
+						}
 
 						if ( NifBlockPtr blk = blocks.value( item->name() ) ) {
 							tip += "<p>Ancestors:<ul>";
@@ -1479,9 +1489,18 @@ QVariant NifModel::data( const QModelIndex & index, int role ) const
 					case NifValue::tUInt:
 					case NifValue::tULittle32:
 						{
-							return tr( "dec: %1\nhex: 0x%2" )
-							       .arg( item->getValueAsString() )
-							       .arg( item->getCountValue(), 8, 16, QChar( '0' ) );
+							QString tip = tr( "dec: %1\nhex: 0x%2" )
+							              .arg( item->getValueAsString() )
+							              .arg( item->getCountValue(), 8, 16, QChar( '0' ) );
+
+							// Description of an enum option renamed by an alias (not for bit flags, whose aliases are per bit)
+							if ( !item->aliases().isEmpty() && NifValue::enumType( item->strType() ) == NifValue::eDefault ) {
+								const NifFieldAlias * alias = activeValueAlias( item, quint32( item->getCountValue() ) );
+								if ( alias && !alias->text.isEmpty() )
+									tip = alias->text + "\n\n" + tip;
+							}
+
+							return tip;
 						}
 					case NifValue::tFloat:
 					case NifValue::tHfloat:
@@ -2724,6 +2743,69 @@ bool NifModel::evalVersionImpl( const NifItem * item ) const
 	}
 
 	return true;
+}
+
+bool NifModel::aliasApplies( const NifItem * item, const NifFieldAlias & alias ) const
+{
+	if ( !alias.vercond.isEmpty() ) {
+		NifModelEval functor( this, getHeaderItem() );
+		if ( !alias.verexpr.evaluateBool( functor ) )
+			return false;
+	}
+	if ( !alias.cond.isEmpty() ) {
+		BaseModelEval functor( this, item );
+		if ( !alias.condexpr.evaluateBool( functor ) )
+			return false;
+	}
+	return true;
+}
+
+const NifFieldAlias * NifModel::activeFieldAlias( const NifItem * item ) const
+{
+	if ( !item )
+		return nullptr;
+
+	for ( const NifFieldAlias & alias : item->aliases() ) {
+		if ( !alias.isValueAlias && aliasApplies( item, alias ) )
+			return &alias;
+	}
+
+	return nullptr;
+}
+
+QHash<quint32, QString> NifModel::activeValueAliasNames( const NifItem * item ) const
+{
+	QHash<quint32, QString> names;
+	if ( !item )
+		return names;
+
+	for ( const NifFieldAlias & alias : item->aliases() ) {
+		if ( alias.isValueAlias && !names.contains( alias.value ) && aliasApplies( item, alias ) )
+			names.insert( alias.value, alias.name );
+	}
+
+	return names;
+}
+
+QString NifModel::enumValueName( const NifItem * item, quint32 value ) const
+{
+	if ( item->aliases().isEmpty() )
+		return NifValue::enumOptionName( item->strType(), value );
+
+	return NifValue::enumOptionName( item->strType(), value, activeValueAliasNames( item ) );
+}
+
+const NifFieldAlias * NifModel::activeValueAlias( const NifItem * item, quint32 value ) const
+{
+	if ( !item )
+		return nullptr;
+
+	for ( const NifFieldAlias & alias : item->aliases() ) {
+		if ( alias.isValueAlias && alias.value == value && aliasApplies( item, alias ) )
+			return &alias;
+	}
+
+	return nullptr;
 }
 
 bool NifModel::evalConditionImpl( const NifItem * item ) const

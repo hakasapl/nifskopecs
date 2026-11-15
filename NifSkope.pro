@@ -544,6 +544,7 @@ build_pass|!debug_and_release {
 
 	XML += \
 		build/nif.xml \
+		build/NIF-CS.xml \
 		build/docsys/kfmxml/kfm.xml
 
 	QSS += \

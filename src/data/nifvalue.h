@@ -227,8 +227,17 @@ public:
 	 */
 	static bool registerEnumOption( const QString & eid, const QString & oid, quint32 oval, const QString & otxt );
 
+	/*! Add or replace an option of an already registered enum type (used by XML overlays).
+	 *
+	 * @param otxt	The new documentation string; if empty, an existing description is kept.
+	 * @return		True if successful, false if the enum type is not registered.
+	 */
+	static bool replaceEnumOption( const QString & eid, const QString & oid, quint32 oval, const QString & otxt );
+
 	//! Get the name of an option from its value.
 	static QString enumOptionName( const QString & eid, quint32 oval );
+	//! Get the name of an option from its value, with some options shown under other names (by option value or bit).
+	static QString enumOptionName( const QString & eid, quint32 oval, const QHash<quint32, QString> & renamedOptions );
 	//! Get the documentation string of an option from its value.
 	static QString enumOptionText( const QString & eid, quint32 oval );
 

@@ -8,6 +8,7 @@
 * The resource manager ignores errors on opening folders.
 * Havok/Create Convex Shape spell now accounts for the radius when generating, so the combined shape + radius adds up to the visible mesh. If replacing an existing shape, it will also keep the material, if there is one.
 * Fixed parsing default values of color types in nif.xml.
+* New optional NIF-CS.xml overlay, loaded after nif.xml, with Community Shaders TruePBR support (NIF format v1): the PBR fields of BSLightingShaderProperty are shown by name depending on the Shader Flags 2 PBR feature flags. Overlay specs can be switched in File > Community Shaders PBR Spec.
 
 #### NifSkope-2.0.dev11-20251230
 

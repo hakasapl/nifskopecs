@@ -41,6 +41,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <QItemDelegate> // Inherited
 #include <QComboBox>
+#include <QHash>
+#include <QRegularExpression>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
@@ -48,6 +50,42 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QMessageBox>
 
 const QString SPACE_QSTRING(" ");
+
+//! Combo box item data role holding the value of an enum option (or the bit of a bit flags option)
+static constexpr int EnumValueRole = Qt::UserRole + 1;
+//! Combo box property: some option names are display-only aliases (NIF-CS.xml)
+static constexpr const char * AliasedEnumProperty = "nifskopeAliasedEnum";
+
+//! Get the value of the text of an enum editor, by the shown option names (as NifValue::enumOptionValue)
+static quint32 shownEnumValue( const QComboBox * cedit, bool isFlags, bool * ok )
+{
+	const QString text = cedit->currentText();
+
+	if ( !isFlags ) {
+		int i = cedit->currentIndex();
+		if ( i < 0 || cedit->itemText( i ) != text )
+			i = cedit->findText( text );
+		*ok = ( i >= 0 && cedit->itemData( i, EnumValueRole ).isValid() );
+		return *ok ? cedit->itemData( i, EnumValueRole ).toUInt() : 0;
+	}
+
+	quint32 value = 0;
+	*ok = true;
+	for ( const QString & part : text.split( QRegularExpression( "\\s*\\|\\s*" ), Qt::SkipEmptyParts ) ) {
+		const QString str = part.trimmed();
+		bool found = false;
+		int i = cedit->findText( str );
+		if ( i >= 0 && cedit->itemData( i, EnumValueRole ).isValid() ) {
+			value |= ( 1u << cedit->itemData( i, EnumValueRole ).toUInt() );
+			found = true;
+		} else {
+			value |= str.toULong( &found, 0 );
+		}
+		*ok = *ok && found;
+	}
+
+	return value;
+}
 
 //! @file nifdelegate.cpp NifDelegate
 
@@ -289,6 +327,12 @@ public:
 			quint32 value = v.value<NifValue>().toCount( nullptr, nullptr );
 			QMapIterator<quint32, QPair<QString, QString> > it( eo.o );
 
+			// Enum options (values, or bits of bit flags) renamed for this item by display-only aliases (NIF-CS.xml)
+			QHash<quint32, QString> renamed;
+			if ( const NifModel * nif = qobject_cast<const NifModel *>( index.model() ) )
+				renamed = nif->activeValueAliasNames( static_cast<const NifItem *>( index.internalPointer() ) );
+			cedit->setProperty( AliasedEnumProperty, !renamed.isEmpty() );
+
 			if ( eo.t == NifValue::eDefault && t.endsWith( QLatin1StringView("HavokMaterial") ) ) {
 				// sort Havok material enumerations alphabetically instead of by CRC32 hash value
 				QMap<QString, bool> matNames;
@@ -303,16 +347,20 @@ public:
 				while ( it.hasNext() ) {
 					it.next();
 					bool ok = false;
+					const QString name = renamed.value( it.key(), it.value().first );
 
 					if ( eo.t == NifValue::eFlags ) {
-						cedit->addItem( it.value().first, ok = ( value & ( 1 << it.key() ) ) );
+						cedit->addItem( name, ok = ( value & ( 1 << it.key() ) ) );
 					} else {
-						cedit->addItem( it.value().first, ok = ( value == it.key() ) );
+						cedit->addItem( name, ok = ( value == it.key() ) );
 					}
+					cedit->setItemData( cedit->count() - 1, it.key(), EnumValueRole );
 				}
 			}
 
-			cedit->setEditText( NifValue::enumOptionName( t, value ) );
+			QString currentText = NifValue::enumOptionName( t, value, renamed );
+
+			cedit->setEditText( currentText );
 
 			if ( eo.t == NifValue::eFlags ) {
 				// Using setCurrentIndex on bitflag enums causes the QComboBox
@@ -321,7 +369,7 @@ public:
 				// See: https://github.com/niftools/nifskope/issues/51
 				cedit->setCurrentIndex( -1 );
 			} else {
-				cedit->setCurrentIndex( cedit->findText( NifValue::enumOptionName( t, value ) ) );
+				cedit->setCurrentIndex( cedit->findText( currentText ) );
 			}
 
 
@@ -357,8 +405,15 @@ public:
 		} else if ( cedit ) {
 			QString t  = index.sibling( index.row(), NifModel::TypeCol ).data( NifSkopeDisplayRole ).toString();
 			QVariant v = index.data( Qt::EditRole );
-			bool ok;
-			quint32 x = NifValue::enumOptionValue( t, cedit->currentText(), &ok );
+			bool ok = false;
+			quint32 x = 0;
+
+			// Some shown option names are display-only aliases: map them back with the stored option values
+			if ( cedit->property( AliasedEnumProperty ).toBool() )
+				x = shownEnumValue( cedit, NifValue::enumType( t ) == NifValue::eFlags, &ok );
+
+			if ( !ok )
+				x = NifValue::enumOptionValue( t, cedit->currentText(), &ok );
 
 			if ( !ok )
 				x = cedit->currentText().toUInt();

@@ -74,8 +74,50 @@ public:
 	static const NifModel * fromIndex( const QModelIndex & index );
 	static const NifModel * fromValidIndex( const QModelIndex & index );
 
-	//! Find and parse the XML file
+	//! Find and parse the XML file, and the optional XML overlay (NIF-CS.xml) on top of it
 	static bool loadXML();
+
+	//! File name of the optional XML overlay, loaded after nif.xml from the same folder
+	static constexpr const char * overlayFileName = "NIF-CS.xml";
+
+	/*! A selectable spec version declared by the XML overlay with a <spec> element.
+	 *
+	 * Only one spec of the overlay is applied at a time, so that a new revision of an
+	 * external format (e.g. Community Shaders PBR v2) can be added beside the old one
+	 * and switched to without restarting.
+	 */
+	struct XmlOverlaySpec
+	{
+		QString version;	//!< The version attribute, used as the selection key
+		QString name;		//!< The name attribute, shown in the UI
+		bool isDefault = false;	//!< Applied when the user has not selected a spec
+	};
+
+	//! The specs declared by the XML overlay at the last loadXML() (empty if there is no overlay)
+	static QList<XmlOverlaySpec> overlaySpecs;
+	//! The version of the overlay spec applied at the last loadXML() (empty if none)
+	static QString activeOverlaySpec;
+	//! Value of overlaySpecSelection() that disables the overlay
+	static constexpr const char * overlaySpecOff = "off";
+	//! The spec selected by the user: a version, overlaySpecOff, or empty for the overlay's default
+	static QString overlaySpecSelection();
+	//! Stores the spec selection, takes effect on the next loadXML()
+	static void setOverlaySpecSelection( const QString & version );
+
+	//! Get the display-only alias of an item (see NifFieldAlias) whose conditions currently hold, or nullptr
+	const NifFieldAlias * activeFieldAlias( const NifItem * item ) const;
+	//! Get the display-only alias of an enum option of an item whose conditions currently hold, or nullptr
+	const NifFieldAlias * activeValueAlias( const NifItem * item, quint32 value ) const;
+	//! Get the names of all enum options (values, or bits of bit flags) of an item renamed by active aliases
+	QHash<quint32, QString> activeValueAliasNames( const NifItem * item ) const;
+	//! Get the display name of an enum or bit flags value of an item, using the active aliases
+	QString enumValueName( const NifItem * item, quint32 value ) const;
+	//! Is the item hidden in the tree view by a display-only alias?
+	bool isHiddenByAlias( const NifItem * item ) const
+	{
+		const NifFieldAlias * alias = activeFieldAlias( item );
+		return alias && alias->hidden;
+	}
 
 	//! When creating NifModels from outside the main thread protect them with a QReadLocker
 	static QReadWriteLock XMLlock;
@@ -727,6 +769,9 @@ protected:
 
 	bool evalConditionImpl( const NifItem * item ) const override final;
 
+	//! Do the conditions of a display-only alias hold for an item?
+	bool aliasApplies( const NifItem * item, const NifFieldAlias & alias ) const;
+
 	bool setHeaderString( const QString &, uint ver = 0 ) override final;
 
 	// end BaseModel
@@ -824,6 +869,8 @@ public:
 protected:
 	//! Parse the XML file using a NifXmlHandler
 	static QString parseXmlDescription( const QString & filename );
+	//! Apply the selected spec of an XML overlay on top of the already parsed nif.xml
+	static QString parseXmlOverlay( const QString & filename );
 
 	// XML structures
 	static QList<quint32> supportedVersions;
