@@ -43,10 +43,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+// Port of the running instance that files are passed to. NifSkopeCS uses other ports than NifSkope (12583 and
+// 12584), so that files opened in NifSkopeCS are not passed to a running NifSkope, and vice versa.
 #if QT_NO_DEBUG
-#define NIFSKOPE_IPC_PORT 12583
+#define NIFSKOPE_IPC_PORT 12587
 #else
-#define NIFSKOPE_IPC_PORT 12584
+#define NIFSKOPE_IPC_PORT 12588
 #endif
 
 namespace Ui {

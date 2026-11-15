@@ -1,2 +1,2 @@
 echo "Running executable..."
-./release/NifSkope.exe
+./release/NifSkopeCS.exe

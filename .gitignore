@@ -37,6 +37,8 @@ NifSkope.pro.user
 # Binaries
 NifSkope
 NifSkope.exe
+NifSkopeCS
+NifSkopeCS.exe
 
 # VC Project
 *.cd

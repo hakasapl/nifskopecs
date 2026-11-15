@@ -30,11 +30,11 @@ jobs:
       run: |
         qmake-qt5 noavx=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx.exe
         make clean
         qmake-qt5 noavx2=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx2.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx2.exe
         make clean
         qmake-qt5 NifSkope.pro
         make -j 8
@@ -73,11 +73,11 @@ jobs:
       run: |
         qmake-qt5 noavx=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx.exe
         make clean
         qmake-qt5 noavx2=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx2.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx2.exe
         make clean
         qmake-qt5 NifSkope.pro
         make -j 8

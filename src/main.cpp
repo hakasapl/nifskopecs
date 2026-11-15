@@ -90,15 +90,14 @@ int main( int argc, char * argv[] )
 	QScopedPointer<QCoreApplication> app( createApplication( argc, argv ) );
 
 	if ( auto a = qobject_cast<QApplication *>(app.data()) ) {
+		// The organization and application names select where the settings are stored, so NifSkopeCS
+		// keeps those of NifSkope 2.0 and shares its settings (resource folders, etc.)
 		a->setOrganizationName( "NifTools" );
 		a->setOrganizationDomain( "niftools.org" );
 		a->setApplicationName( "NifSkope " + NifSkopeVersion::rawToMajMin( NIFSKOPE_VERSION ) );
-		a->setApplicationVersion( NIFSKOPE_VERSION );
-#ifdef NIFSKOPE_REVISION
-		a->setApplicationDisplayName( "NifSkope " + NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ) + " (build " + NIFSKOPE_REVISION + ", " + __DATE__ + ")" );
-#else
-		a->setApplicationDisplayName( "NifSkope " + NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ) + " (" + __DATE__ + ")" );
-#endif
+		a->setApplicationVersion( nifSkopeCSVersion() );
+		// Window title, e.g. "NifSkopeCS 0.1 (Based on NifSkope 2.0 Dev 11)"; the build is in the About dialog
+		a->setApplicationDisplayName( nifSkopeCSDisplayName() );
 
 		// Must set current directory or this causes issues with several features
 		QDir::setCurrent( qApp->applicationDirPath() );
@@ -317,10 +316,12 @@ int main( int argc, char * argv[] )
 		QTextStream out( stdout );
 		QTextStream err( stderr );
 
+		// for --version (the application name is that of the executable, NifSkopeCS)
+		app->setApplicationVersion( nifSkopeCSVersion() );
+
 		QCommandLineParser parser;
 		parser.setSingleDashWordOptionMode( QCommandLineParser::ParseAsLongOptions );
-		parser.setApplicationDescription(
-			QString( "NifSkope %1 — headless batch processing" ).arg( NIFSKOPE_VERSION ) );
+		parser.setApplicationDescription( nifSkopeCSDisplayName() + QStringLiteral( " — headless batch processing" ) );
 		parser.addHelpOption();
 		parser.addVersionOption();
 

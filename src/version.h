@@ -229,4 +229,25 @@ protected:
 QDebug operator<<(QDebug dbg, const NifSkopeVersion & ver);
 
 
+/*! NifSkopeCS: NifSkope with Community Shaders support.
+ *
+ * NIFSKOPECS_VERSION is the version of NifSkopeCS (build/VERSION_CS), and NIFSKOPE_VERSION
+ * the version of NifSkope it is based on (build/VERSION).
+ */
+#define NIFSKOPECS_NAME "NifSkopeCS"
+
+//! Name and versions for display, e.g. "NifSkopeCS 0.1 (Based on NifSkope 2.0 Dev 11)"
+inline QString nifSkopeCSDisplayName()
+{
+	return QStringLiteral( NIFSKOPECS_NAME " " NIFSKOPECS_VERSION " (Based on NifSkope " )
+			+ NifSkopeVersion::rawToDisplay( NIFSKOPE_VERSION, true ) + QChar( ')' );
+}
+
+//! Versions in short form, e.g. "0.1 (NifSkope 2.0.dev11)", as reported by --version
+inline QString nifSkopeCSVersion()
+{
+	return QStringLiteral( NIFSKOPECS_VERSION " (NifSkope " NIFSKOPE_VERSION ")" );
+}
+
+
 #endif

@@ -1,5 +1,7 @@
 #include "about_dialog.h"
 
+#include "version.h"
+
 AboutDialog::AboutDialog( QWidget * parent )
 	: QDialog( parent )
 {
@@ -7,12 +9,17 @@ AboutDialog::AboutDialog( QWidget * parent )
 
 	setAttribute( Qt::WA_DeleteOnClose );
 
+	// Ends with the application display name, so that Qt does not append it to the title again
+	this->setWindowTitle( tr( "About %1" ).arg( nifSkopeCSDisplayName() ) );
+
 #ifdef NIFSKOPE_REVISION
-	this->setWindowTitle( tr( "About NifSkope %1 (revision %2)" ).arg( NIFSKOPE_VERSION, NIFSKOPE_REVISION ) );
+	QString build = tr( "Build %1, %2" ).arg( NIFSKOPE_REVISION, __DATE__ );
 #else
-	this->setWindowTitle( tr( "About NifSkope %1" ).arg( NIFSKOPE_VERSION ) );
+	QString build = tr( "Built %1" ).arg( __DATE__ );
 #endif
-	QString text = tr( R"rhtml(
+	QString text = QStringLiteral( "<p><b>%1</b><br>%2</p>" ).arg( nifSkopeCSDisplayName().toHtmlEscaped(), build ) + tr( R"rhtml(
+	<p>NifSkopeCS is NifSkope with extended support for Community Shaders specific applications.</p>
+
 	<p>NifSkope is a tool for opening and editing the NetImmerse file format (NIF).</p>
 
 	<p>NifSkope is free software available under a BSD license.

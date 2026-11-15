@@ -8,7 +8,7 @@
 	TEMPLATE = app
 }
 
-TARGET   = NifSkope
+TARGET   = NifSkopeCS
 
 macx: {
 	QMAKE_CC = clang
@@ -110,6 +110,10 @@ REVISION = $$getRevision()
 
 # NIFSKOPE_VERSION macro
 DEFINES += NIFSKOPE_VERSION=\\\"$${VER}\\\"
+
+# NifSkopeCS Version, NIFSKOPECS_VERSION macro
+VER_CS = $$cat(build/VERSION_CS)
+DEFINES += NIFSKOPECS_VERSION=\\\"$${VER_CS}\\\"
 
 # NIFSKOPE_REVISION macro
 !isEmpty(REVISION) {

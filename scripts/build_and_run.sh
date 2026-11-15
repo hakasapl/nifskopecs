@@ -5,4 +5,4 @@ echo "Building project..."
 make -j8
 
 echo "Running executable..."
-./release/NifSkope.exe
+./release/NifSkopeCS.exe

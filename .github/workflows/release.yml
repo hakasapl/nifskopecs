@@ -30,11 +30,11 @@ jobs:
       run: |
         qmake6 noavx=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx.exe
         make clean
         qmake6 noavx2=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx2.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx2.exe
         make clean
         qmake6 NifSkope.pro
         make -j 8
@@ -74,15 +74,15 @@ jobs:
       run: |
         qmake6 noavx=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope release/NifSkope_noavx
+        mv -f release/NifSkopeCS release/NifSkopeCS_noavx
         make clean
         qmake6 noavx2=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope release/NifSkope_noavx2
+        mv -f release/NifSkopeCS release/NifSkopeCS_noavx2
         make clean
         qmake6 NifSkope.pro
         make -j 8
-        chmod -f 0755 release release/NifSkope release/NifSkope_noavx release/NifSkope_noavx2
+        chmod -f 0755 release release/NifSkopeCS release/NifSkopeCS_noavx release/NifSkopeCS_noavx2
         curl --location -O https://github.com/SarahWeiii/CoACD/releases/download/1.0.7/coacd-1.0.7-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
         7za x coacd-1.0.7-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
         curl --location -O https://github.com/fo76utils/NifMopp/releases/download/1.0/NifMopp.zip
@@ -133,9 +133,9 @@ jobs:
         7za x NifMopp.zip
         mkdir release/coacd
         mv coacd/lib_coacd.dylib coacd-1.0.7.dist-info/licenses/LICENSE release/coacd
-        mv release/*.xml release/coacd release/shaders release/qt.conf release/style.qss release/*.txt NifMopp.exe release/NifSkope.app/Contents/MacOS/
-        macdeployqt release/NifSkope.app -dmg
-        mv release/NifSkope.dmg release/NifSkope_2_0_$(date +"%Y-%m-%d")-macosqt6_x64.dmg
+        mv release/*.xml release/coacd release/shaders release/qt.conf release/style.qss release/*.txt NifMopp.exe release/NifSkopeCS.app/Contents/MacOS/
+        macdeployqt release/NifSkopeCS.app -dmg
+        mv release/NifSkopeCS.dmg release/NifSkope_2_0_$(date +"%Y-%m-%d")-macosqt6_x64.dmg
 
     - name: 'Upload Artifacts'
       uses: actions/upload-artifact@v6
@@ -168,11 +168,11 @@ jobs:
       run: |
         qmake6 noavx=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx.exe
         make clean
         qmake6 noavx2=1 NifSkope.pro
         make -j 8
-        mv -f release/NifSkope.exe release/NifSkope_noavx2.exe
+        mv -f release/NifSkopeCS.exe release/NifSkopeCS_noavx2.exe
         make clean
         qmake6 NifSkope.pro
         make -j 8
