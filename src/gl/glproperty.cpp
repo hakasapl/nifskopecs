@@ -42,6 +42,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "glview.h"
 #include "renderer.h"
 
+#include <algorithm>
+#include <cmath>
+
 
 //! @file glproperty.cpp Encapsulation of NiProperty blocks defined in nif.xml
 
@@ -1298,6 +1301,10 @@ void BSLightingShaderProperty::updateImpl( const NifModel * nif, const QModelInd
 	else if ( index == iTextureSet ) {
 		updateParams( nif );
 	}
+	else if ( !pbrExtraDataBlocks.isEmpty() && pbrExtraDataBlocks.contains( nif->getBlockNumber( index ) ) ) {
+		// PBRThinSurface or PBRFuzz extra data edited
+		updateParams( nif );
+	}
 }
 
 void BSLightingShaderProperty::resetParams()
@@ -1344,6 +1351,10 @@ void BSLightingShaderProperty::resetParams()
 	paletteScale = 1.0;
 	rimPower = 2.0;
 	backlightPower = 0.0;
+
+	isPBR = false;
+	pbr = PBRParams();
+	pbrExtraDataBlocks.clear();
 }
 
 void BSLightingShaderProperty::updateParams( const NifModel * nif )
@@ -1493,7 +1504,177 @@ void BSLightingShaderProperty::updateParams( const NifModel * nif )
 			environmentReflection = nif->get<float>( lsp, "Environment Map Scale" );
 		else if ( isST( ShaderFlags::ST_EyeEnvmap ) )
 			environmentReflection = nif->get<float>( lsp, "Eye Cubemap Scale" );
+
+		// Community Shaders TruePBR
+		if ( bsVersion >= 83 && bsVersion <= 100 && hasSF2( ShaderFlags::SLSF2_Unused01 ) )
+			updatePBRParams( nif, textures );
 	}
+}
+
+// Appends the float values of a field of the PBR material to a list (floats, colors, vectors and float arrays)
+static void appendPBRFloats( const NifItem * item, QVector<float> & values )
+{
+	if ( item->isArray() ) {
+		for ( const NifItem * c : item->children() )
+			appendPBRFloats( c, values );
+		return;
+	}
+	switch ( item->valueType() ) {
+	case NifValue::tFloat:
+	case NifValue::tHfloat:
+		values.append( item->getFloatValue() );
+		break;
+	case NifValue::tColor3:
+		{
+			Color3	c = item->get<Color3>();
+			values << c.red() << c.green() << c.blue();
+		}
+		break;
+	case NifValue::tVector2:
+		{
+			Vector2	v = item->get<Vector2>();
+			values << v[0] << v[1];
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+// Reads up to count floats from the fields that follow a field, whichever of them are present (the nif.xml fields,
+// or the PBR fields of build/NIF-CS.xml that replace them)
+static QVector<float> readPBRFloatsAfter( const NifModel * nif, const QModelIndex & parent, const char * fieldName, int count )
+{
+	QVector<float>	v;
+	QModelIndex	i = nif->getIndex( parent, fieldName );
+	if ( i.isValid() ) {
+		int	n = nif->rowCount( parent );
+		for ( int r = i.row() + 1; r < n && v.size() < count; r++ ) {
+			const NifItem *	item = static_cast< const NifItem * >( nif->getIndex( parent, r ).internalPointer() );
+			if ( item && nif->evalCondition( item ) )
+				appendPBRFloats( item, v );
+		}
+	}
+	return v;
+}
+
+// Reads the TruePBR material as Community Shaders does (src/TruePBR.cpp, BSLightingShaderProperty_LoadBinary and
+// BSLightingShader_SetupMaterial, and src/TruePBR/BSLightingShaderMaterialPBR.cpp), so that the sk_pbr shaders
+// can use the same math as its lighting shader. The fields are read by position or by their nif.xml names, so this
+// does not depend on the display names of build/NIF-CS.xml.
+void BSLightingShaderProperty::updatePBRParams( const NifModel * nif, const QVector<QString> & textures )
+{
+	using Flags = PBRParams::Flags;
+	auto lsp = iSPData;
+
+	isPBR = true;
+	pbr = PBRParams();
+
+	// Shader Flags 2 select the features
+	std::uint32_t	flags = 0;
+	bool	glintEnabled = false;
+	if ( hasSF2( ShaderFlags::SLSF2_Multi_Layer_Parallax ) ) {
+		flags |= Flags::TwoLayer;
+		if ( hasSF2( ShaderFlags::SLSF2_Soft_Lighting ) )
+			flags |= Flags::InterlayerParallax;
+		if ( hasSF2( ShaderFlags::SLSF2_Back_Lighting ) )
+			flags |= Flags::CoatNormal;
+		if ( hasSF2( ShaderFlags::SLSF2_Effect_Lighting ) )
+			flags |= Flags::ColoredCoat;
+	} else if ( hasSF2( ShaderFlags::SLSF2_Back_Lighting ) ) {
+		flags |= Flags::HairMarschner;
+	} else {
+		if ( hasSF2( ShaderFlags::SLSF2_Anisotropic_Lighting ) )
+			flags |= Flags::ThinSurface;
+		if ( hasSF2( ShaderFlags::SLSF2_Effect_Lighting ) )
+			flags |= Flags::Foliage;
+		if ( hasSF2( ShaderFlags::SLSF2_Rim_Lighting ) )
+			flags |= Flags::Subsurface;
+		if ( hasSF2( ShaderFlags::SLSF2_Soft_Lighting ) )
+			flags |= Flags::Fuzz;
+		else if ( hasSF2( ShaderFlags::SLSF2_Fit_Slope ) )
+			glintEnabled = true;
+	}
+
+	// Base material fields: Glossiness = specular level, Specular Strength = roughness scale,
+	// Lighting Effect 2 = displacement scale, Specular Color and Lighting Effect 1 = subsurface or coat
+	pbr.params1 = FloatVector4( nif->get<float>( lsp, "Specular Strength" ), nif->get<float>( lsp, "Lighting Effect 2" ),
+								nif->get<float>( lsp, "Glossiness" ), 0.0f );
+	Color3	c = nif->get<Color3>( lsp, "Specular Color" );
+	float	c2w = nif->get<float>( lsp, "Lighting Effect 1" );
+	if ( flags & ( Flags::Subsurface | Flags::TwoLayer ) )
+		pbr.params2 = FloatVector4( c.red(), c.green(), c.blue(), c2w );
+
+	// MultiLayer Parallax: 5 floats with the coat, fuzz or glint parameters, and the fuzz roughness
+	float	coatRoughness = 1.0f;
+	float	coatSpecularLevel = 0.04f;
+	FloatVector4	fuzzColorAndWeight( 0.0f );
+	float	fuzzRoughness = -1.0f;
+	if ( isST( ShaderFlags::ST_MultiLayerParallax ) ) {
+		QVector<float>	v = readPBRFloatsAfter( nif, lsp, "Lighting Effect 2", 5 );
+		if ( v.size() >= 5 ) {
+			coatRoughness = v[0];
+			coatSpecularLevel = v[1];
+			fuzzColorAndWeight = FloatVector4( v[0], v[1], v[2], v[3] );
+			pbr.glintParams = FloatVector4( v[0], v[1], v[2], v[3] );
+			fuzzRoughness = ( v[4] < 1.0f ? v[4] : -1.0f );
+		}
+	}
+
+	// NiFloatsExtraData "PBRThinSurface" and "PBRFuzz" (not with Two Layer or Hair Marschner)
+	for ( qint32 link : nif->getLinkArray( iBlock, "Extra Data List" ) ) {
+		QModelIndex	iExtra = nif->getBlockIndex( link, "NiFloatsExtraData" );
+		if ( !iExtra.isValid() )
+			continue;
+		// The game looks up extra data by name, ignoring case
+		QString	name = nif->get<QString>( iExtra, "Name" );
+		bool	isThinSurface = ( name.compare( QLatin1StringView( "PBRThinSurface" ), Qt::CaseInsensitive ) == 0 );
+		if ( !( isThinSurface || name.compare( QLatin1StringView( "PBRFuzz" ), Qt::CaseInsensitive ) == 0 ) )
+			continue;
+		pbrExtraDataBlocks.append( link );
+		if ( flags & ( Flags::TwoLayer | Flags::HairMarschner ) )
+			continue;
+		int	count = ( isThinSurface ? 4 : 2 );
+		if ( nif->get<quint32>( iExtra, "Num Floats" ) != quint32( count ) )
+			continue;
+		QVector<float>	data = readPBRFloatsAfter( nif, iExtra, "Num Floats", count );
+		bool	isValid = ( data.size() == count );
+		for ( float x : data )
+			isValid = isValid && std::isfinite( x );
+		if ( !isValid )
+			continue;
+		if ( isThinSurface ) {
+			pbr.thinSurfaceParams = FloatVector4( std::clamp( data[0], 0.0f, 1.0f ), std::clamp( data[1], 0.0f, 1.0f ),
+													std::clamp( data[2], 0.0f, 1.0f ), std::clamp( data[3], 0.0f, 3.0f ) );
+		} else if ( data[1] == 0.0f || data[1] == 1.0f ) {
+			fuzzRoughness = ( data[0] < 0.0f ? -1.0f : std::min( data[0], 1.0f ) );
+			if ( data[1] == 1.0f && ( flags & Flags::Fuzz ) && !textures.value( 3 ).isEmpty() )
+				flags |= Flags::HasFuzzRoughnessTexture;
+		}
+	}
+
+	// Shader constants of the features
+	if ( flags & Flags::TwoLayer ) {
+		pbr.layerParams = FloatVector4( coatRoughness, coatSpecularLevel, 0.0f, 0.0f );
+	} else if ( flags & Flags::Fuzz ) {
+		pbr.layerParams = fuzzColorAndWeight;
+	} else if ( glintEnabled ) {
+		flags |= Flags::Glint;
+		pbr.layerParams = pbr.glintParams;
+	}
+	pbr.fuzzRoughness = ( fuzzRoughness >= 0.0f ? std::min( fuzzRoughness, 1.0f ) : -1.0f );
+
+	// Textures: 2 = emissive, 3 = displacement, 7 = subsurface or coat, 6 = fuzz or coat normal
+	if ( !textures.value( 2 ).isEmpty() )
+		flags |= Flags::HasEmissive;
+	if ( !textures.value( 3 ).isEmpty() )
+		flags |= Flags::HasDisplacement;
+	if ( !textures.value( 7 ).isEmpty() )
+		flags |= Flags::HasFeatureTexture0;
+	if ( !textures.value( 6 ).isEmpty() )
+		flags |= Flags::HasFeatureTexture1;
+
+	pbr.flags = flags;
 }
 
 void BSLightingShaderProperty::setController( const NifModel * nif, const QModelIndex & iController )

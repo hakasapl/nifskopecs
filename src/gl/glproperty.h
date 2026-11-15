@@ -785,14 +785,57 @@ public:
 	float rimPower = 2.0;
 	float backlightPower = 0.0;
 
+	//! Community Shaders TruePBR (Skyrim and SSE, Shader Flags 2 bit 23), see build/NIF-CS.xml
+	bool isPBR = false;
+	//! Material parameters of a TruePBR shape, as Community Shaders sets them up for its lighting shader
+	struct PBRParams
+	{
+		//! Feature flags, as PBR::Flags in Community Shaders (PBRMath.hlsli)
+		enum Flags : std::uint32_t
+		{
+			HasEmissive = 1U << 0,
+			HasDisplacement = 1U << 1,
+			HasFeatureTexture0 = 1U << 2,
+			HasFeatureTexture1 = 1U << 3,
+			Subsurface = 1U << 4,
+			TwoLayer = 1U << 5,
+			ColoredCoat = 1U << 6,
+			InterlayerParallax = 1U << 7,
+			CoatNormal = 1U << 8,
+			Fuzz = 1U << 9,
+			HairMarschner = 1U << 10,
+			Glint = 1U << 11,
+			Foliage = 1U << 13,
+			ThinSurface = 1U << 14,
+			HasFuzzRoughnessTexture = 1U << 15
+		};
+		std::uint32_t flags = 0;
+		//! Roughness scale (Specular Strength), displacement scale (Lighting Effect 2), specular level (Glossiness)
+		FloatVector4 params1 = FloatVector4( 1.0f, 1.0f, 0.04f, 0.0f );
+		//! Subsurface color and opacity, or coat color and strength (Specular Color, Lighting Effect 1)
+		FloatVector4 params2 = FloatVector4( 0.0f );
+		//! Coat roughness and specular level, fuzz color and weight, or glint parameters (MultiLayer Parallax)
+		FloatVector4 layerParams = FloatVector4( 0.0f );
+		//! Fuzz roughness, negative to use the base roughness
+		float fuzzRoughness = -1.0f;
+		//! Subsurface balance, thin surface front and back specular weights, back roughness scale (PBRThinSurface)
+		FloatVector4 thinSurfaceParams = FloatVector4( 0.75f, 0.5f, 0.5f, 1.0f );
+		//! Glint: screen space scale, log microfacet density, microfacet roughness, density randomization
+		FloatVector4 glintParams = FloatVector4( 1.5f, 40.0f, 0.015f, 2.0f );
+	} pbr;
+
 protected:
 	void setController( const NifModel * nif, const QModelIndex & controller ) override final;
 	void updateImpl( const NifModel * nif, const QModelIndex & block ) override;
 	void resetParams() override;
 	void updateParams( const NifModel * nif );
+	void updatePBRParams( const NifModel * nif, const QVector<QString> & textures );
 	void setTintColor( const NifModel* nif, const QString & itemName );
 
 	ShaderFlags::ShaderType shaderType = ShaderFlags::ST_Default;
+
+	//! Block numbers of the PBRThinSurface and PBRFuzz extra data, to update the parameters when they change
+	QVector<int> pbrExtraDataBlocks;
 };
 
 REGISTER_PROPERTY( BSLightingShaderProperty, ShaderLighting )

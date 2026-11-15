@@ -44,6 +44,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QSettings>
 
 #include <algorithm>
+#include <cstring>
 
 
 //! @file gltex.cpp TexCache management
@@ -391,7 +392,15 @@ std::uint16_t TexCache::loadTex( Tex & tx, const NifModel * nif )
 		return 0;
 	}
 
-	i->filepath = find( i->filename, nif );
+	// A separate copy of a cube map, or the built-in sky, pre-filtered for PBR lighting
+	bool	isPBRCubeMap = i->filename.startsWith( QLatin1StringView( pbrCubeMapPrefix ) );
+	if ( i->filename == QLatin1StringView( pbrSkyCubeMap ) ) {
+		isPBRCubeMap = true;
+		i->filepath = i->filename;
+	} else if ( isPBRCubeMap )
+		i->filepath = find( i->filename.mid( qsizetype( std::strlen( pbrCubeMapPrefix ) ) ), nif );
+	else
+		i->filepath = find( i->filename, nif );
 
 	if ( !tx.id[0] )
 		glGenTextures( 1, tx.id );
@@ -401,7 +410,7 @@ std::uint16_t TexCache::loadTex( Tex & tx, const NifModel * nif )
 
 	try
 	{
-		i->mipmaps = texLoad( nif, i->filepath, i->format, tx.target, i->width, i->height, tx.id );
+		i->mipmaps = texLoad( nif, i->filepath, i->format, tx.target, i->width, i->height, tx.id, isPBRCubeMap );
 		tx.mipmaps = std::uint16_t( i->mipmaps );
 	}
 	catch ( QString & e )

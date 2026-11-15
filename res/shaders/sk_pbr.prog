@@ -1,0 +1,13 @@
+# Community Shaders TruePBR (Shader Flags 2 bit 23, see build/NIF-CS.xml)
+
+# Skyrim
+check BSVersion >= 83
+check BSVersion <= 100
+check BSLightingShaderProperty
+check BSLightingShaderProperty/Shader Flags 2 & 0x800000
+checkgroup begin or
+	check NiTriBasedGeomData/Has Normals == 1
+	check BSTriShape/Vertex Desc & 0x800000000000
+checkgroup end
+
+shaders sk_pbr.vert sk_pbr.frag

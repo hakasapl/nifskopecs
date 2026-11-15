@@ -234,10 +234,19 @@ public:
 	 * @param format	Contain the format, for instance "DDS (DXT3)" or "TGA", on successful load.
 	 * @param width		Contains the texture width on successful load.
 	 * @param height	Contains the texture height on successful load.
+	 * @param forcePBRCubeMap	Pre-filter a cube map for PBR lighting as for Fallout 76 and Starfield,
+	 *                  whatever the game is (see pbrCubeMapPrefix).
 	 * @return			The number of mipmaps on successful load, 0 otherwise.
 	 */
 	GLuint texLoad( const NifModel * nif, const QString & filepath, TexFmt & format,
-					GLenum & target, GLuint & width, GLuint & height, GLuint * id );
+					GLenum & target, GLuint & width, GLuint & height, GLuint * id, bool forcePBRCubeMap = false );
+
+	//! Prefix of a cube map path that loads a separate copy of the cube map, pre-filtered for PBR lighting
+	// (specular mip levels by roughness, and a second texture for diffuse lighting), e.g. for Skyrim TruePBR.
+	static constexpr const char * pbrCubeMapPrefix = "@pbrcube:";
+	//! Built-in sky cube map, generated and pre-filtered for PBR lighting: the default Skyrim TruePBR environment,
+	// which does not need game data
+	static constexpr const char * pbrSkyCubeMap = "#cssky.dds";
 
 	/*! A function for loading textures.
 	 *

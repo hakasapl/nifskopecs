@@ -407,6 +407,10 @@ void Shape::updateImpl( const NifModel * nif, const QModelIndex & index )
 {
 	Node::updateImpl( nif, index );
 
+	// The shader property selects the program too (e.g. shader type, PBR flags): reassess the conditions
+	if ( bssp && index != iBlock && index == bssp->index() )
+		shader = nullptr;
+
 	if ( index == iBlock ) {
 		shader = nullptr;	// Reset stored shader so it can reassess conditions
 

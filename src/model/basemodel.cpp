@@ -923,6 +923,9 @@ QVariant BaseModelEval::operator()( const QVariant & v ) const
 		if ( left.startsWith( QChar('$') ) && model && typeid( *model ) == typeid( NifModel ) ) {
 			return QVariant::fromValue( static_cast< const NifModel * >( model )->resolveString( model->getItem( item->parent(), left.mid(1) ) ) );
 		}
+		// String literal in single quotes, to compare with a string field, e.g. $Name == 'PBRFuzz' (NIF-CS.xml)
+		if ( left.size() >= 2 && left.startsWith( QChar('\'') ) && left.endsWith( QChar('\'') ) )
+			return QVariant( left.mid( 1, left.size() - 2 ) );
 		const NifItem * exprItem = item;
 		bool isArgExpr = false;
 		while ( left == XMLARG ) {

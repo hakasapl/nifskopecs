@@ -6,6 +6,7 @@
 #include "gamemanager.h"
 
 #include "ui/widgets/colorwheel.h"
+#include "ui/widgets/filebrowser.h"
 #include "ui/widgets/floatslider.h"
 #include "ui/settingsdialog.h"
 
@@ -17,15 +18,23 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileDialog>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStringListModel>
 #include <QTimer>
+#include <QVBoxLayout>
+
+#include <set>
+#include <string>
 
 using namespace nstheme;
 using Game::GameManager;
@@ -862,4 +871,135 @@ void SettingsResources::on_btnRemoveInvalidPaths_clicked()
 	ui->foldersList->setCurrentIndex( folders->index(0, 0) );
 
 	modifyPane();
+}
+
+
+/*
+ * Community Shaders
+ */
+
+SettingsCommunityShaders::SettingsCommunityShaders( QWidget * parent ) :
+	SettingsPane( parent )
+{
+	auto	layout = new QVBoxLayout( this );
+	layout->setContentsMargins( 0, 0, 0, 0 );
+
+	// Page title, as on the other pages
+	auto	name = new QLabel( tr( "Community Shaders" ), this );
+	QFont	nameFont( "Segoe UI Semibold", 12 );
+	nameFont.setBold( true );
+	name->setFont( nameFont );
+	layout->addWidget( name );
+
+	auto	grp = new QGroupBox( tr( "TruePBR Preview" ), this );
+	auto	grid = new QGridLayout( grp );
+
+	pbrEnvironmentMap = new QLineEdit( grp );
+	pbrEnvironmentMap->setMinimumWidth( 400 );
+	pbrEnvironmentMap->setPlaceholderText( tr( "Built-in sky (no game data needed)" ) );
+	pbrEnvironmentMap->setToolTip( tr( "Path of a cube map, for example textures/cubemaps/bleakfallscube_e.dds" ) );
+
+	auto	lbl = new QLabel( tr( "Environment Map" ), grp );
+	lbl->setBuddy( pbrEnvironmentMap );
+
+	auto	btnBrowse = new QPushButton( QIcon( ":/btn/load" ), QString(), grp );
+	btnBrowse->setIconSize( QSize( 20, 20 ) );
+	btnBrowse->setMaximumSize( 28, 26 );
+	btnBrowse->setToolTip( tr( "Select a cube map from the Skyrim SE resources" ) );
+
+	auto	btnReset = new QPushButton( tr( "Use Built-in Sky" ), grp );
+	btnReset->setToolTip( tr( "Clear the path, to use the built-in sky" ) );
+
+	auto	info = new QLabel( tr(
+		"The cube map that TruePBR shapes reflect and are lit by. Leave it empty to use the built-in sky, "
+		"which does not need any game data. A path is looked up in the Skyrim SE resources (see Resources) "
+		"and in the folder of the NIF; if it is not found, the built-in sky is used." ), grp );
+	info->setWordWrap( true );
+
+	grid->addWidget( lbl, 0, 0 );
+	grid->addWidget( pbrEnvironmentMap, 0, 1 );
+	grid->addWidget( btnBrowse, 0, 2 );
+	grid->addWidget( btnReset, 0, 3 );
+	grid->addWidget( info, 1, 0, 1, 4 );
+	grid->setColumnStretch( 1, 1 );
+
+	layout->addWidget( grp );
+	layout->addStretch( 1 );
+
+	SettingsDialog::registerPage( parent, name->text() );
+
+	connect( pbrEnvironmentMap, &QLineEdit::textEdited, this, &SettingsPane::modifyPane );
+	connect( btnBrowse, &QPushButton::clicked, this, &SettingsCommunityShaders::selectPBREnvironmentMap );
+	connect( btnReset, &QPushButton::clicked, this, &SettingsCommunityShaders::resetPBREnvironmentMap );
+}
+
+SettingsCommunityShaders::~SettingsCommunityShaders()
+{
+}
+
+void SettingsCommunityShaders::read()
+{
+	QSettings settings;
+	pbrEnvironmentMap->setText( settings.value( pbrEnvironmentMapKey, QString() ).toString() );
+
+	setModified( false );
+}
+
+void SettingsCommunityShaders::write()
+{
+	if ( !isModified() )
+		return;
+
+	QSettings settings;
+	settings.setValue( pbrEnvironmentMapKey, pbrEnvironmentMap->text().trimmed() );
+
+	setModified( false );
+}
+
+void SettingsCommunityShaders::setDefault()
+{
+	read();
+}
+
+static bool pbrEnvironmentMapFilter( [[maybe_unused]] void * p, const std::string_view & s )
+{
+	return ( s.starts_with( "textures/" ) && s.ends_with( ".dds" ) && s.find( "/cubemaps/" ) != std::string_view::npos );
+}
+
+void SettingsCommunityShaders::selectPBREnvironmentMap()
+{
+	std::set< std::string_view >	fileSet;
+	GameManager::list_files( fileSet, Game::SKYRIM_SE, &pbrEnvironmentMapFilter );
+	if ( fileSet.empty() ) {
+		QMessageBox::information( this, tr( "Community Shaders" ),
+									tr( "No cube maps were found in the Skyrim SE resources. Add the game's Data folder "
+										"or its archives on the Resources page, or type the path of the cube map." ) );
+		return;
+	}
+
+	std::string	prvPath( pbrEnvironmentMap->text().trimmed().toLower().replace( QChar('\\'), QChar('/') ).toStdString() );
+	if ( !prvPath.empty() && fileSet.find( prvPath ) == fileSet.end() )
+		prvPath.clear();
+
+	FileBrowserWidget	fileBrowser( 640, 480, "Select TruePBR Environment Map", fileSet, prvPath,
+										&( GameManager::getGameResources( Game::SKYRIM_SE ) ) );
+	if ( fileBrowser.exec() != QDialog::Accepted )
+		return;
+	const std::string_view *	newPath = fileBrowser.getItemSelected();
+	if ( !newPath || newPath->empty() )
+		return;
+
+	QString	path( QString::fromLatin1( newPath->data(), qsizetype( newPath->length() ) ) );
+	if ( path != pbrEnvironmentMap->text() ) {
+		pbrEnvironmentMap->setText( path );
+		modifyPane();
+	}
+}
+
+void SettingsCommunityShaders::resetPBREnvironmentMap()
+{
+	if ( !pbrEnvironmentMap->text().isEmpty() ) {
+		pbrEnvironmentMap->clear();
+		modifyPane();
+	}
 }

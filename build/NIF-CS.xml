@@ -37,6 +37,10 @@
         Insert a new field after the last field named "Existing Field" (and after the fields
         inserted there before). With hide="true", the new field is always hidden.
     Tokens declared inside a spec are replaced before the nif.xml tokens, so they can use them.
+
+    CONDITIONS
+    Besides the nif.xml syntax, a condition can compare a string field with a 'quoted' string, e.g.
+    $Name == 'PBRFuzz'. NifSkope applies ! to everything after it, so negated terms need parentheses.
     -->
 
 
@@ -70,8 +74,8 @@
     6 fuzz (color, weight) or coat normal (normal, roughness), 7 subsurface (color, thickness)
     or coat (color, strength).
 
-    Extra data on the shader property, ignored with Two Layer and Hair Marschner (these cannot
-    be named here, since conditions cannot test the extra data name):
+    Extra data on the shader property, ignored with Two Layer and Hair Marschner (their floats are
+    named below, with a 'quoted' string condition on the name):
     - NiFloatsExtraData "PBRThinSurface", 4 floats: subsurface balance (0-1, default 0.75),
       thin surface front specular weight (0-1, default 0.5), back specular weight (0-1,
       default 0.5), back roughness scale (0-3, default 1).
@@ -91,6 +95,8 @@
             <cspbr1 token="#CS1_SUBSURFACE#" string="((Shader Flags 2 #BITAND# 0xD800000) == 0x4800000)">PBR, Rim_Lighting, not Multi_Layer_Parallax or Back_Lighting.</cspbr1>
             <cspbr1 token="#CS1_FUZZ#" string="((Shader Flags 2 #BITAND# 0xB800000) == 0x2800000)">PBR, Soft_Lighting, not Multi_Layer_Parallax or Back_Lighting.</cspbr1>
             <cspbr1 token="#CS1_GLINT#" string="((Shader Flags 2 #BITAND# 0xB801000) == 0x801000)">PBR, Fit_Slope, not Multi_Layer_Parallax, Back_Lighting or Soft_Lighting.</cspbr1>
+            <cspbr1 token="#CS1_THIN_SURFACE_DATA#" string="(($Name == 'PBRThinSurface') #AND# (Num Floats == 4))">NiFloatsExtraData with the thin surface parameters.</cspbr1>
+            <cspbr1 token="#CS1_FUZZ_DATA#" string="(($Name == 'PBRFuzz') #AND# (Num Floats == 2))">NiFloatsExtraData with the fuzz roughness parameters.</cspbr1>
         </token>
 
         <!-- Unused01 keeps its name; once set, the Shader Flags 2 bits show their PBR names (below) -->
@@ -170,6 +176,22 @@
             <field name="Eye Cubemap Scale" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
             <field name="Left Eye Reflection Center" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
             <field name="Right Eye Reflection Center" hide="true" vercond="#BS_SKY_SSE#" cond="#CS1_PBR#">PBR: not read by Community Shaders, which ignores the Eye Envmap shader type.</field>
+        </niobject>
+
+        <!--
+        PBR extra data of a BSLightingShaderProperty (in its Extra Data List), ignored with Two_Layer and Hair_Marschner.
+        The floats are named when the extra data name (case sensitive here, not in the game) and count match.
+        -->
+        <niobject name="NiFloatsExtraData" patch="true">
+            <field name="Data" vercond="#BS_SKY_SSE#" andcond="(!#CS1_THIN_SURFACE_DATA#) #AND# (!#CS1_FUZZ_DATA#)" />
+
+            <field name="Subsurface Balance" type="float" default="0.75" range="#F0_1#" vercond="#BS_SKY_SSE#" cond="#CS1_THIN_SURFACE_DATA#" after="Data">PBRThinSurface: share of the subsurface scattering that leaves through the back face (0-1). Used with Rim_Lighting (Subsurface).</field>
+            <field name="Front Specular Weight" type="float" default="0.5" range="#F0_1#" vercond="#BS_SKY_SSE#" cond="#CS1_THIN_SURFACE_DATA#" after="Data">PBRThinSurface: specular weight of the front face (0-1). Used with Anisotropic_Lighting (Thin_Surface) or Effect_Lighting (Foliage).</field>
+            <field name="Back Specular Weight" type="float" default="0.5" range="#F0_1#" vercond="#BS_SKY_SSE#" cond="#CS1_THIN_SURFACE_DATA#" after="Data">PBRThinSurface: specular weight of the back face (0-1). Used with Anisotropic_Lighting (Thin_Surface) or Effect_Lighting (Foliage).</field>
+            <field name="Back Roughness Scale" type="float" default="1.0" range="0.0:3.0" vercond="#BS_SKY_SSE#" cond="#CS1_THIN_SURFACE_DATA#" after="Data">PBRThinSurface: roughness scale of the back face (0-3). Used with Anisotropic_Lighting (Thin_Surface) or Effect_Lighting (Foliage).</field>
+
+            <field name="Fuzz Roughness" type="float" default="-1.0" vercond="#BS_SKY_SSE#" cond="#CS1_FUZZ_DATA#" after="Data">PBRFuzz: fuzz roughness (0-1), negative to use the base roughness. Overrides the MultiLayer Parallax parameter.</field>
+            <field name="Fuzz Roughness From Texture" type="float" default="0.0" vercond="#BS_SKY_SSE#" cond="#CS1_FUZZ_DATA#" after="Data">PBRFuzz: 1 to read the fuzz roughness from the green channel of the displacement texture (3), 0 not to. Other values make the extra data invalid.</field>
         </niobject>
 
     </spec>

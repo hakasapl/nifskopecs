@@ -9,6 +9,8 @@
 #include <QSettings>
 #include <QStatusBar>
 
+#include <algorithm>
+
 
 //! @file settingsdialog.cpp SettingsDialog
 
@@ -29,8 +31,21 @@ SettingsDialog::SettingsDialog( QWidget * parent ) :
 	content->addWidget( new SettingsGeneral( this ) );
 	content->addWidget( new SettingsRender( this ) );
 	content->addWidget( new SettingsResources( this ) );
+	content->addWidget( new SettingsCommunityShaders( this ) );
 	sanitizePane = new SettingsSanitize( this );
 	content->addWidget( sanitizePane );
+
+	// Widen the page list if needed, so that the longest page name (Community Shaders) is not elided.
+	// The padding is that of res/style.qss: 10 on both sides of the list and of each item, 10 left of the text,
+	// and some room to spare.
+	int	textWidth = 0;
+	for ( int i = 0; i < categories->count(); i++ )
+		textWidth = std::max( textWidth, categories->fontMetrics().horizontalAdvance( categories->item( i )->text() ) );
+	int	listWidth = textWidth + 70 + 2 * categories->frameWidth();
+	if ( listWidth > categories->maximumWidth() ) {
+		categories->setMinimumWidth( listWidth );
+		categories->setMaximumWidth( listWidth );
+	}
 
 	categories->setCurrentRow( 0 );
 

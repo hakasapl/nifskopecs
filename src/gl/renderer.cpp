@@ -41,6 +41,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "io/material.h"
 #include "model/nifmodel.h"
 #include "ui/settingsdialog.h"
+#include "ui/settingspane.h"
 #include "gl/BSMesh.h"
 #include "libfo76utils/src/ddstxt16.hpp"
 #include "glview.h"
@@ -97,6 +98,9 @@ void Renderer::updateSettings()
 	globalUniforms->sfParallaxOffset = settings.value( "Settings/Render/General/Sf Parallax Offset", 0.5f).toFloat();
 	cfg.cubeMapPathFO76 = settings.value( "Settings/Render/General/Cube Map Path FO 76", "textures/shared/cubemaps/mipblur_defaultoutside1.dds" ).toString();
 	cfg.cubeMapPathSTF = settings.value( "Settings/Render/General/Cube Map Path STF", "textures/cubemaps/cell_cityplazacube.dds" ).toString();
+	// Settings/Community Shaders: empty for the built-in sky (TexCache::pbrSkyCubeMap)
+	cfg.cubeMapPathSkyrimPBR =
+		settings.value( SettingsCommunityShaders::pbrEnvironmentMapKey, QString() ).toString().trimmed();
 	setCacheSize( std::uint32_t( cfg.meshCacheSize ) << 23 );
 	TexCache::loadSettings( settings );
 }
@@ -643,7 +647,87 @@ bool Renderer::setupProgramCE1( const NifModel * nif, Program * prog, Shape * me
 
 	QString	emptyString;
 	int texunit = 0;
-	if ( lsp ) {
+	if ( lsp && lsp->isPBR && prog->uniLocation( "pbrFlags" ) >= 0 ) {
+		// BSLightingShaderProperty with Community Shaders TruePBR (sk_pbr.prog)
+
+		const QString *	forced = &emptyString;
+		if ( scene->hasOption(Scene::DoLighting) && scene->hasVisMode(Scene::VisNormalsOnly) )
+			forced = &white;
+		const QString &	alt = ( !scene->hasOption(Scene::DoErrorColor) ? white : magenta );
+		prog->uniSampler( bsprop, "BaseMap", 0, texunit, alt, clamp, *forced );
+
+		forced = &emptyString;
+		if ( !scene->hasOption(Scene::DoLighting) )
+			forced = &default_n;
+		prog->uniSampler( lsp, "NormalMap", 1, texunit, emptyString, clamp, *forced );
+
+		// Missing textures as in Community Shaders: RMAOS and feature textures white, emissive and displacement black
+		prog->uniSampler( bsprop, "EmissiveMap", 2, texunit, black, clamp );
+		prog->uniSampler( bsprop, "DisplacementMap", 3, texunit, black, clamp );
+		prog->uniSampler( bsprop, "RMAOSMap", 5, texunit, white, clamp );
+		prog->uniSampler( bsprop, "FeatureMap1", 6, texunit, white, clamp );
+		prog->uniSampler( bsprop, "FeatureMap0", 7, texunit, white, clamp );
+
+		const auto &	pbr = lsp->pbr;
+		std::uint32_t	pbrFlags = pbr.flags;
+		if ( !( scene->hasOption(Scene::DoGlow) && scene->hasOption(Scene::DoLighting) ) )
+			pbrFlags &= ~std::uint32_t( BSLightingShaderProperty::PBRParams::HasEmissive );
+		prog->uni1i( "pbrFlags", int( pbrFlags ) );
+		prog->uni4f( "pbrParams1", pbr.params1 );
+		prog->uni4f( "pbrParams2", pbr.params2 );
+		prog->uni4f( "layerParams", pbr.layerParams );
+		prog->uni1f( "fuzzRoughness", pbr.fuzzRoughness );
+		prog->uni4f( "thinSurfaceParams", pbr.thinSurfaceParams );
+		prog->uni1b( "treeAnim", lsp->hasSF2( ShaderFlags::SLSF2_Tree_Anim ) );
+
+		// Emissive color and multiple apply with Own_Emit
+		Color3	emissive = ( lsp->hasEmittance ? lsp->emissiveColor : Color3( 0.0f, 0.0f, 0.0f ) );
+		prog->uni3f( "emissiveColor", emissive.red(), emissive.green(), emissive.blue() );
+		prog->uni1f( "emissiveMult", lsp->emissiveMult );
+
+		prog->uni1b( "hasSpecular", scene->hasOption(Scene::DoSpecular) && scene->hasOption(Scene::DoLighting) );
+
+		prog->uni1f( "alpha", lsp->alpha );
+		prog->uni2f( "uvScale", lsp->uvScale.x, lsp->uvScale.y );
+		prog->uni2f( "uvOffset", lsp->uvOffset.x, lsp->uvOffset.y );
+
+		// Environment: cube map pre-filtered for PBR lighting (specular), and its diffuse version.
+		// The built-in sky, so that the preview does not depend on game data, unless a cube map of the game
+		// is set in the settings (Community Shaders, TruePBR Preview, Environment Map) and found.
+		bool	hasCubeMap = ( scene->hasOption(Scene::DoCubeMapping) && scene->hasOption(Scene::DoLighting) );
+		GLint	uniCubeMap = prog->uniLocation( "CubeMap" );
+		if ( uniCubeMap >= 0 ) {
+			QString	cube;
+			int	cubeFlags = 0;
+			fn->glActiveTexture( GL_TEXTURE0 + texunit );
+			if ( hasCubeMap ) {
+				if ( !cfg.cubeMapPathSkyrimPBR.isEmpty() ) {
+					cube = QLatin1StringView( TexCache::pbrCubeMapPrefix ) + cfg.cubeMapPathSkyrimPBR;
+					if ( !scene->bindCube( cube ) )
+						cube.clear();
+				}
+				if ( cube.isEmpty() ) {
+					cube = QLatin1StringView( TexCache::pbrSkyCubeMap );
+					cubeFlags = 1;
+					hasCubeMap = scene->bindCube( cube, cubeFlags );
+				}
+			}
+			if ( !hasCubeMap ) [[unlikely]]
+				scene->bindCube( grayCube, 1 );
+			fn->glUniform1i( uniCubeMap, texunit++ );
+			if ( ( uniCubeMap = prog->uniLocation( "CubeMap2" ) ) >= 0 ) {
+				fn->glActiveTexture( GL_TEXTURE0 + texunit );
+				hasCubeMap = hasCubeMap && scene->bindCube( cube, cubeFlags | 2 );
+				if ( !hasCubeMap ) [[unlikely]]
+					scene->bindCube( grayCube, 1 );
+				fn->glUniform1i( uniCubeMap, texunit++ );
+			}
+		} else {
+			hasCubeMap = false;
+		}
+		prog->uni1i( "hasCubeMap", hasCubeMap );
+
+	} else if ( lsp ) {
 		// BSLightingShaderProperty
 
 		const QString *	forced = &emptyString;

@@ -8,11 +8,12 @@
 
 #include "gamemanager.h"
 
-//! @file settingspane.h SettingsPane, SettingsGeneral, SettingsRender, SettingsResources
+//! @file settingspane.h SettingsPane, SettingsGeneral, SettingsRender, SettingsResources, SettingsCommunityShaders
 
 class SettingsDialog;
 class QStringListModel;
 class QListWidget;
+class QLineEdit;
 
 namespace Ui {
 class SettingsGeneral;
@@ -126,6 +127,30 @@ private:
 	QStringListModel * folders;
 
 	QStringList applicableFolders{ "materials", "textures", "geometries" };
+};
+
+//! Settings of the Community Shaders (Skyrim SE) rendering
+class SettingsCommunityShaders : public SettingsPane
+{
+	Q_OBJECT
+
+public:
+	explicit SettingsCommunityShaders( QWidget * parent = nullptr );
+	~SettingsCommunityShaders();
+
+	void read() override final;
+	void write() override final;
+	void setDefault() override final;
+
+	//! Settings key of the cube map that TruePBR shapes are lit by and reflect; empty for the built-in sky
+	static constexpr const char * pbrEnvironmentMapKey = "Settings/Community Shaders/TruePBR/Environment Map";
+
+public slots:
+	void selectPBREnvironmentMap();
+	void resetPBREnvironmentMap();
+
+private:
+	QLineEdit * pbrEnvironmentMap = nullptr;
 };
 
 

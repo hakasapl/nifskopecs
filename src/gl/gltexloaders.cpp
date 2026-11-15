@@ -51,6 +51,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QString>
 #include <QtEndian>
 
+#include <algorithm>
+#include <cmath>
+
 #include "dds.h"
 
 /*! @file gltexloaders.cpp
@@ -1220,8 +1223,80 @@ static void extract_pbr_lut_data( QByteArray & data )
 	data = pbrLUTData;
 }
 
+// Generates the built-in environment of the Skyrim TruePBR preview (TexCache::pbrSkyCubeMap), so that it does not
+// depend on game data: a sky gradient with a sun, hills on the horizon that make the rotation of reflections
+// visible, and the ground. The cube map is R8G8B8A8_UNORM_SRGB, in the orientation of the PBR shaders (world Z up
+// is cube map direction -Z, see the reflection matrix in sk_pbr.vert).
+static void generate_pbr_sky_cube_map( QByteArray & data )
+{
+	static QByteArray	skyData;
+	if ( skyData.isEmpty() ) {
+		const int	w = 256;
+		skyData.resize( qsizetype( 148 + w * w * 6 * 4 ) );
+		unsigned char *	p = reinterpret_cast< unsigned char * >( skyData.data() );
+		(void) FileBuffer::writeDDSHeader( p, 0x1D, w, w, 1, true );
+		p = p + 148;
+
+		const float	sunLen = std::sqrt( 0.35f * 0.35f + 0.55f * 0.55f + 0.75f * 0.75f );
+		const float	sun[3] = { -0.35f / sunLen, 0.55f / sunLen, 0.75f / sunLen };
+		for ( int face = 0; face < 6; face++ ) {
+			for ( int y = 0; y < w; y++ ) {
+				for ( int x = 0; x < w; x++ ) {
+					float	u = ( float( x ) + 0.5f ) * ( 2.0f / float( w ) ) - 1.0f;
+					float	v = ( float( y ) + 0.5f ) * ( 2.0f / float( w ) ) - 1.0f;
+					// cube map direction of the texel
+					float	d[3];
+					switch ( face ) {
+					case 0: d[0] = 1.0f; d[1] = -v; d[2] = -u; break;
+					case 1: d[0] = -1.0f; d[1] = -v; d[2] = u; break;
+					case 2: d[0] = u; d[1] = 1.0f; d[2] = v; break;
+					case 3: d[0] = u; d[1] = -1.0f; d[2] = -v; break;
+					case 4: d[0] = u; d[1] = -v; d[2] = 1.0f; break;
+					default: d[0] = -u; d[1] = -v; d[2] = -1.0f; break;
+					}
+					float	l = std::sqrt( d[0] * d[0] + d[1] * d[1] + d[2] * d[2] );
+					// world direction, Z up
+					float	wx = d[0] / l, wy = d[1] / l, wz = -d[2] / l;
+
+					float	c[3];
+					if ( wz >= 0.0f ) {
+						// bright horizon, deeper blue zenith
+						float	t = std::sqrt( wz );
+						c[0] = 0.86f + ( 0.30f - 0.86f ) * t;
+						c[1] = 0.89f + ( 0.48f - 0.89f ) * t;
+						c[2] = 0.93f + ( 0.82f - 0.93f ) * t;
+						// thin band of distant hills
+						float	az = std::atan2( wy, wx );
+						if ( wz < 0.03f + 0.02f * std::sin( az * 5.0f ) + 0.012f * std::sin( az * 13.0f + 1.0f ) ) {
+							c[0] = 0.55f;
+							c[1] = 0.58f;
+							c[2] = 0.62f;
+						}
+					} else {
+						float	t = std::sqrt( -wz );
+						c[0] = 0.52f + ( 0.24f - 0.52f ) * t;
+						c[1] = 0.49f + ( 0.22f - 0.49f ) * t;
+						c[2] = 0.45f + ( 0.20f - 0.45f ) * t;
+					}
+					float	s = std::max( wx * sun[0] + wy * sun[1] + wz * sun[2], 0.0f );
+					float	sunGlow = std::pow( s, 800.0f ) * 4.0f + std::pow( s, 24.0f ) * 0.25f;
+
+					for ( int i = 0; i < 3; i++ ) {
+						float	a = std::min( std::max( c[i] + sunGlow, 0.0f ), 1.0f );
+						a = ( a <= 0.0031308f ? a * 12.92f : 1.055f * std::pow( a, 1.0f / 2.4f ) - 0.055f );
+						*( p++ ) = (unsigned char) ( std::lround( a * 255.0f ) );
+					}
+					*( p++ ) = 255;
+				}
+			}
+		}
+	}
+	data = skyData;
+}
+
 GLuint TexCache::texLoad( const NifModel * nif, const QString & filepath,
-							TexFmt & format, GLenum & target, GLuint & width, GLuint & height, GLuint * id )
+							TexFmt & format, GLenum & target, GLuint & width, GLuint & height, GLuint * id,
+							bool forcePBRCubeMap )
 {
 	width = height = 0;
 	GLuint	mipmaps = 0;
@@ -1230,6 +1305,8 @@ GLuint TexCache::texLoad( const NifModel * nif, const QString & filepath,
 	if ( filepath.startsWith(QChar('#')) && (filepath.length() == 9 || filepath.length() == 10) ) {
 		if ( filepath == "#sfpbr.dds" )
 			extract_pbr_lut_data( data );
+		else if ( filepath == QLatin1StringView( pbrSkyCubeMap ) )
+			generate_pbr_sky_cube_map( data );
 		else
 			return texLoadColor( nif, filepath, target, width, height, data, id );
 	} else {
@@ -1260,7 +1337,7 @@ GLuint TexCache::texLoad( const NifModel * nif, const QString & filepath,
 				isCubeMap = true;
 			}
 		}
-		if ( isCubeMap && nif && nif->getBSVersion() >= 151 ) {
+		if ( isCubeMap && nif && ( nif->getBSVersion() >= 151 || forcePBRCubeMap ) ) {
 			mipmaps = texLoadPBRCubeMap( nif, filepath, target, data, id );
 		} else {
 			mipmaps = texLoadDDS( filepath, target, data, id );
